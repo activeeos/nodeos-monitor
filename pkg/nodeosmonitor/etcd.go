@@ -31,16 +31,18 @@ type EtcdLeaseManager struct {
 	clock          clock.Clock
 	leaseClient    clientv3.Lease
 	id             clientv3.LeaseID
+	newLeaseChan   chan struct{}
 	lostLeaseChan  chan struct{}
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
 func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
-	leaseClient clientv3.Lease, lostLeaseChan chan struct{}) *EtcdLeaseManager {
+	leaseClient clientv3.Lease, newLeaseChan, lostLeaseChan chan struct{}) *EtcdLeaseManager {
 	return &EtcdLeaseManager{
 		clock:          clock,
 		leaseClient:    leaseClient,
 		lockTTLSeconds: lockTTLSeconds,
+		newLeaseChan:   newLeaseChan,
 		lostLeaseChan:  lostLeaseChan,
 	}
 }
@@ -54,16 +56,23 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		default:
 		}
 
+		logrus.Info("attaining Etcd lease")
+
 		if err := l.attainLease(ctx); err != nil {
 			logrus.WithError(err).Errorf("error attaining lease")
 			l.clock.Sleep(leaseRecoveryDelay)
 			continue
 		}
+
+		logrus.Infof("attained Etcd lease: %d", l.id)
+
 		if err := l.manageKeepAlive(ctx); err != nil {
 			logrus.WithError(err).Errorf("error managing lease keep-alive")
 			l.clock.Sleep(leaseRecoveryDelay)
 			continue
 		}
+
+		logrus.Warn("lost Etcd lease")
 	}
 }
 
@@ -84,6 +93,10 @@ func (l *EtcdLeaseManager) attainLease(ctx context.Context) error {
 
 	atomic.StoreInt64((*int64)(&l.id), int64(response.ID))
 
+	if l.newLeaseChan != nil {
+		l.newLeaseChan <- struct{}{}
+	}
+
 	return nil
 }
 
@@ -98,10 +111,16 @@ func (l *EtcdLeaseManager) manageKeepAlive(ctx context.Context) error {
 		if !ok {
 			break
 		}
+
+		logrus.Debug("received Etcd lease keep-alive message")
 	}
 
+	logrus.Debug("Etcd keep-alive ended")
+
 	atomic.StoreInt64((*int64)(&l.id), 0)
-	l.lostLeaseChan <- struct{}{}
+	if l.lostLeaseChan != nil {
+		l.lostLeaseChan <- struct{}{}
+	}
 
 	return nil
 }
@@ -140,6 +159,7 @@ func (k *KeyChangeNotifier) Start(ctx context.Context) {
 
 		for _, event := range response.Events {
 			if event.IsModify() {
+				logrus.Infof("detected Etcd key change for %s", k.key)
 				k.changeChan <- event.Kv
 			}
 		}
@@ -174,7 +194,7 @@ func (e *EtcdMutex) Lock(ctx context.Context) (bool, error) {
 	}
 
 	_, err = e.kvClient.Txn(ctx).If(
-		clientv3.Compare(clientv3.LeaseValue(e.key), "=", 0),
+		clientv3.Compare(clientv3.LeaseValue(e.key), "<", 1),
 	).Then(
 		clientv3.OpPut(e.key, e.id, clientv3.WithLease(leaseID)),
 	).Commit()

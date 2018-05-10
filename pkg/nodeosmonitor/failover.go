@@ -101,7 +101,7 @@ func (f *FailoverManager) init() {
 
 	lostLeaseChan := make(chan struct{})
 	f.leaseManager = NewEtcdLeaseManager(f.clock,
-		defaultLeaseTTLSeconds, f.leaseClient, lostLeaseChan)
+		defaultLeaseTTLSeconds, f.leaseClient, nil, lostLeaseChan)
 	go f.leaseManager.Start(ctx)
 	go f.handleLostLease(ctx, lostLeaseChan)
 
