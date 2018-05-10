@@ -60,6 +60,32 @@ type FailoverManager struct {
 	notifier     *KeyChangeNotifier
 }
 
+// FailoverConfig contains the parameters for a FailoverManager.
+type FailoverConfig struct {
+	ID             string
+	EtcdKey        string
+	Clock          clock.Clock
+	LeaseClient    clientv3.Lease
+	WatcherClient  clientv3.Watcher
+	KVClient       clientv3.KV
+	ActiveProcess  Process
+	StandbyProcess Process
+}
+
+// NewFailoverManager instantiates a new FailoverManager.
+func NewFailoverManager(config *FailoverConfig) *FailoverManager {
+	return &FailoverManager{
+		id:             config.ID,
+		key:            config.EtcdKey,
+		clock:          config.Clock,
+		leaseClient:    config.LeaseClient,
+		watcherClient:  config.WatcherClient,
+		kvClient:       config.KVClient,
+		activeProcess:  config.ActiveProcess,
+		standbyProcess: config.StandbyProcess,
+	}
+}
+
 // Start begins the failover process.
 func (f *FailoverManager) Start(ctx context.Context) {
 	f.ctx = ctx
