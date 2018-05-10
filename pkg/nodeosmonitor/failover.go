@@ -2,98 +2,183 @@ package nodeosmonitor
 
 import (
 	"context"
+	"sync"
 	"time"
 
-	"sync/atomic"
-
 	"code.cloudfoundry.org/clock"
+
 	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	// ErrNoLease is returned when a lease isn't active for a
-	// LeaseManager.
-	ErrNoLease = errors.New("error: lease not active")
+const (
+	failoverStateActive  = 1
+	failoverStateStandby = 2
+
+	restartDelay = 10 * time.Second
 )
 
-// LeaseManager always maintains an Etcd lease, calling callbacks when
-// the current lease is lost.
-type LeaseManager struct {
-	config             *Config
-	clock              clock.Clock
-	leaseClient        clientv3.Lease
-	id                 clientv3.LeaseID
-	lostLeaseCallbacks []func()
+// Process is a type that can be activated and shutdown. In this
+// codebase, a Process is usually an actual OS process.
+type Process interface {
+	Activate(ProcessFailureHandler)
+	Shutdown()
 }
 
-// AddLostLeaseCallbacks adds a function to the list of functions
-// called when a lease is called.
-func (l *LeaseManager) AddLostLeaseCallbacks(f func()) {
-	l.lostLeaseCallbacks = append(l.lostLeaseCallbacks, f)
+// ProcessFailureHandler is something that's called when a process
+// fails.
+type ProcessFailureHandler interface {
+	HandleFailure(ctx context.Context)
 }
 
-// Start begins the process of attaining and renewing leases.
-func (l *LeaseManager) Start(ctx context.Context) {
+// FailoverManager manages a failover system for a process using
+// Etcd. The active version of a Process is activated when a lock is
+// attained on an Etcd key. The standby version of a process is
+// activated when the lock is lost or if it isn't
+// attainable. Additionally, FailoverManager supports being notified
+// of a downstream failure, which causes it to lose its Etcd lease and
+// restart.
+type FailoverManager struct {
+	sync.Mutex
+	ctx            context.Context
+	id             string
+	key            string
+	clock          clock.Clock
+	leaseClient    clientv3.Lease
+	watcherClient  clientv3.Watcher
+	kvClient       clientv3.KV
+	activeProcess  Process
+	standbyProcess Process
+
+	// Dynamic fields
+	currentState int
+	cancel       func()
+	leaseManager *EtcdLeaseManager
+	mutex        *EtcdMutex
+	notifier     *KeyChangeNotifier
+}
+
+// Start begins the failover process.
+func (f *FailoverManager) Start(ctx context.Context) {
+	f.ctx = ctx
+	f.init()
+}
+
+func (f *FailoverManager) init() {
+	f.Lock()
+	defer f.Unlock()
+
+	ctx, cancel := context.WithCancel(f.ctx)
+	f.cancel = cancel
+
+	lostLeaseChan := make(chan struct{})
+	f.leaseManager = NewEtcdLeaseManager(f.clock,
+		defaultLeaseTTLSeconds, f.leaseClient, lostLeaseChan)
+	go f.leaseManager.Start(ctx)
+	go f.handleLostLease(ctx, lostLeaseChan)
+
+	notificationChan := make(chan *mvccpb.KeyValue)
+	f.notifier = NewKeyChangeNotifier(f.key, f.watcherClient, notificationChan)
+	go f.notifier.Start(ctx)
+	go f.tryActiveFromChan(ctx, notificationChan)
+
+	f.mutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
+
+	if err := f.tryActivate(ctx); err != nil {
+		logrus.WithError(err).Errorf("error trying to activate on init")
+	}
+}
+
+func (f *FailoverManager) tryActiveFromChan(ctx context.Context, c chan *mvccpb.KeyValue) {
 	for {
-		if err := l.attainLease(ctx); err != nil {
-			logrus.WithError(err).Errorf("error attaining lease")
-			l.clock.Sleep(time.Second)
-			continue
+		select {
+		case <-ctx.Done():
+			return
+		case <-c:
 		}
-		if err := l.manageKeepAlive(ctx); err != nil {
-			logrus.WithError(err).Errorf("error managing lease keep-alive")
-			l.clock.Sleep(time.Second)
-			continue
+
+		if err := f.tryActivate(ctx); err != nil {
+			logrus.WithError(err).Errorf("error trying to activate from failover")
 		}
 	}
 }
 
-// LeaseID returns the current Etcd lease ID.
-func (l *LeaseManager) LeaseID() (clientv3.LeaseID, error) {
-	if l.id == 0 {
-		return 0, ErrNoLease
-	}
-
-	return l.id, nil
-}
-
-func (l *LeaseManager) attainLease(ctx context.Context) error {
-	response, err := l.leaseClient.Grant(ctx, l.config.LockTTLSeconds)
+func (f *FailoverManager) tryActivate(ctx context.Context) error {
+	locked, err := f.mutex.Lock(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "error granting lease")
+		return errors.Wrapf(err, "error trying to lock Etcd mutex")
 	}
 
-	atomic.StoreInt64((*int64)(&l.id), int64(response.ID))
+	if locked {
+		f.handleActive(ctx)
+	} else {
+		f.handleStandby(ctx)
+	}
 
 	return nil
 }
 
-func (l *LeaseManager) manageKeepAlive(ctx context.Context) error {
-	keepAlive, err := l.leaseClient.KeepAlive(ctx, l.id)
-	if err != nil {
-		return errors.Wrapf(err, "error starting lease keep alive goroutine")
-	}
-
+func (f *FailoverManager) handleLostLease(ctx context.Context, c chan struct{}) {
 	for {
-		_, ok := <-keepAlive
-		if !ok {
-			break
+		select {
+		case <-ctx.Done():
+			return
+		case <-c:
 		}
+
+		f.cancel()
+		f.init()
 	}
-
-	atomic.StoreInt64((*int64)(&l.id), 0)
-
-	for _, callback := range l.lostLeaseCallbacks {
-		callback()
-	}
-
-	return nil
 }
 
-// Architecture
-// Maintain lease
-// When the lease on the key is removed, try to claim the key
+func (f *FailoverManager) shutdownProcesses() {
+	if f.currentState == failoverStateActive {
+		f.activeProcess.Shutdown()
+	}
+	if f.currentState == failoverStateStandby {
+		f.standbyProcess.Shutdown()
+	}
 
-// func (f *FailoverManager)
+	f.currentState = 0
+}
+
+// HandleFailure is called by an external process in order to restart
+// the FailoverManager, losing any currently active leases.
+func (f *FailoverManager) HandleFailure(ctx context.Context) {
+	f.cancel()
+	f.shutdownProcesses()
+
+	f.clock.Sleep(restartDelay)
+
+	f.init()
+}
+
+func (f *FailoverManager) handleActive(ctx context.Context) {
+	f.Lock()
+	defer f.Unlock()
+
+	if f.currentState == failoverStateActive {
+		return
+	}
+
+	f.shutdownProcesses()
+
+	f.currentState = failoverStateActive
+	f.activeProcess.Activate(f)
+}
+
+func (f *FailoverManager) handleStandby(ctx context.Context) {
+	f.Lock()
+	defer f.Unlock()
+
+	if f.currentState == failoverStateStandby {
+		return
+	}
+
+	f.shutdownProcesses()
+
+	f.currentState = failoverStateStandby
+	f.standbyProcess.Activate(f)
+}
