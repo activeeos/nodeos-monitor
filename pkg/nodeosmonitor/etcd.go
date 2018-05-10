@@ -158,10 +158,8 @@ func (k *KeyChangeNotifier) Start(ctx context.Context) {
 		}
 
 		for _, event := range response.Events {
-			if event.IsModify() {
-				logrus.Infof("detected Etcd key change for %s", k.key)
-				k.changeChan <- event.Kv
-			}
+			logrus.Infof("detected Etcd key change for %s", k.key)
+			k.changeChan <- event.Kv
 		}
 	}
 }
