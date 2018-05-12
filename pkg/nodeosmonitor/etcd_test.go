@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func getEtcdClient(t *testing.T) *clientv3.Client {
+func GetEtcdClient(t *testing.T) *clientv3.Client {
 	client, err := clientv3.NewFromURL("localhost:22379")
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +23,7 @@ func getEtcdClient(t *testing.T) *clientv3.Client {
 
 func TestEtcdLeaseManager(t *testing.T) {
 	manager := NewEtcdLeaseManager(
-		clock.NewClock(), 10, getEtcdClient(t).Lease, nil, nil)
+		clock.NewClock(), 10, GetEtcdClient(t).Lease, nil)
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
@@ -45,7 +45,7 @@ func TestEtcdLeaseManager(t *testing.T) {
 
 func TestKeyChangeNotifier(t *testing.T) {
 	key := "testkey!"
-	client := getEtcdClient(t)
+	client := GetEtcdClient(t)
 	change := make(chan *mvccpb.KeyValue)
 	notifier := NewKeyChangeNotifier(key, client.Watcher, change)
 
@@ -64,7 +64,7 @@ func TestKeyChangeNotifier(t *testing.T) {
 }
 
 func TestEtcdMutex(t *testing.T) {
-	client := getEtcdClient(t)
+	client := GetEtcdClient(t)
 	key := "testlock"
 
 	ctx, cancel := context.WithCancel(context.TODO())
@@ -72,12 +72,12 @@ func TestEtcdMutex(t *testing.T) {
 
 	manager1NewLease := make(chan struct{})
 	manager1 := NewEtcdLeaseManager(
-		clock.NewClock(), 10, getEtcdClient(t).Lease, manager1NewLease, nil)
+		clock.NewClock(), 10, GetEtcdClient(t).Lease, manager1NewLease)
 	go manager1.Start(ctx)
 
 	manager2NewLease := make(chan struct{})
 	manager2 := NewEtcdLeaseManager(
-		clock.NewClock(), 10, getEtcdClient(t).Lease, manager2NewLease, nil)
+		clock.NewClock(), 10, GetEtcdClient(t).Lease, manager2NewLease)
 	go manager2.Start(ctx)
 
 	mutex1 := NewEtcdMutex("1", key, client.KV, manager1)

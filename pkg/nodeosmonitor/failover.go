@@ -17,20 +17,20 @@ const (
 	failoverStateActive  = 1
 	failoverStateStandby = 2
 
-	restartDelay = 10 * time.Second
+	periodicActivationInterval = 5 * time.Second
 )
 
 // Process is a type that can be activated and shutdown. In this
 // codebase, a Process is usually an actual OS process.
 type Process interface {
-	Activate(ProcessFailureHandler)
-	Shutdown()
+	Activate(context.Context, ProcessFailureHandler)
+	Shutdown(context.Context)
 }
 
 // ProcessFailureHandler is something that's called when a process
 // fails.
 type ProcessFailureHandler interface {
-	HandleFailure(ctx context.Context)
+	HandleFailure(ctx context.Context, err error)
 }
 
 // FailoverManager manages a failover system for a process using
@@ -42,7 +42,6 @@ type ProcessFailureHandler interface {
 // restart.
 type FailoverManager struct {
 	sync.Mutex
-	ctx            context.Context
 	id             string
 	key            string
 	clock          clock.Clock
@@ -52,12 +51,12 @@ type FailoverManager struct {
 	activeProcess  Process
 	standbyProcess Process
 
-	// Dynamic fields
-	currentState int
-	cancel       func()
-	leaseManager *EtcdLeaseManager
-	mutex        *EtcdMutex
-	notifier     *KeyChangeNotifier
+	// Internal fields
+	currentState  int
+	leaseManager  *EtcdLeaseManager
+	mutex         *EtcdMutex
+	notifier      *KeyChangeNotifier
+	leaseAttained chan struct{}
 }
 
 // FailoverConfig contains the parameters for a FailoverManager.
@@ -83,41 +82,49 @@ func NewFailoverManager(config *FailoverConfig) *FailoverManager {
 		kvClient:       config.KVClient,
 		activeProcess:  config.ActiveProcess,
 		standbyProcess: config.StandbyProcess,
+		leaseAttained:  make(chan struct{}, 1),
 	}
 }
 
-// Start begins the failover process.
+// Start begins the FailoverManager process. The process runs
+// asynchronously until the context is canceled.
 func (f *FailoverManager) Start(ctx context.Context) {
-	f.ctx = ctx
-	f.init()
-}
+	logrus.Infof("starting failover manager")
 
-func (f *FailoverManager) init() {
-	f.Lock()
-	defer f.Unlock()
-
-	ctx, cancel := context.WithCancel(f.ctx)
-	f.cancel = cancel
-
-	lostLeaseChan := make(chan struct{})
 	f.leaseManager = NewEtcdLeaseManager(f.clock,
-		defaultLeaseTTLSeconds, f.leaseClient, nil, lostLeaseChan)
+		defaultLeaseTTLSeconds, f.leaseClient, f.leaseAttained)
 	go f.leaseManager.Start(ctx)
-	go f.handleLostLease(ctx, lostLeaseChan)
+
+	f.mutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
 
 	notificationChan := make(chan *mvccpb.KeyValue)
 	f.notifier = NewKeyChangeNotifier(f.key, f.watcherClient, notificationChan)
 	go f.notifier.Start(ctx)
-	go f.tryActiveFromChan(ctx, notificationChan)
+	go f.tryActivateFromChan(ctx, notificationChan)
+	go f.tryActivatePeriodically(ctx)
 
-	f.mutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
+	logrus.Debugf("started failover manager")
+}
 
-	if err := f.tryActivate(ctx); err != nil {
-		logrus.WithError(err).Errorf("error trying to activate on init")
+func (f *FailoverManager) tryActivatePeriodically(ctx context.Context) {
+	ticker := time.NewTicker(periodicActivationInterval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		logrus.Debugf("trying to activate process periodically")
+
+		if err := f.tryActivate(ctx); err != nil {
+			logrus.WithError(err).Errorf("error trying to activate process periodically")
+		}
 	}
 }
 
-func (f *FailoverManager) tryActiveFromChan(ctx context.Context, c chan *mvccpb.KeyValue) {
+func (f *FailoverManager) tryActivateFromChan(ctx context.Context, c chan *mvccpb.KeyValue) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -125,13 +132,33 @@ func (f *FailoverManager) tryActiveFromChan(ctx context.Context, c chan *mvccpb.
 		case <-c:
 		}
 
+		logrus.Debugf("trying to activate process from channel notification")
+
 		if err := f.tryActivate(ctx); err != nil {
-			logrus.WithError(err).Errorf("error trying to activate from failover")
+			logrus.WithError(err).Errorf("error trying to activate process from chan")
 		}
 	}
 }
 
+// TryActivate forces an activation, waiting for a least to be
+// attained.
+func (f *FailoverManager) TryActivate(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-f.leaseAttained:
+	}
+
+	if err := f.tryActivate(ctx); err != nil {
+		return errors.Wrapf(err, "error attempting to activate process")
+	}
+	return nil
+}
+
 func (f *FailoverManager) tryActivate(ctx context.Context) error {
+	f.Lock()
+	defer f.Unlock()
+
 	locked, err := f.mutex.Lock(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "error trying to lock Etcd mutex")
@@ -146,65 +173,64 @@ func (f *FailoverManager) tryActivate(ctx context.Context) error {
 	return nil
 }
 
-func (f *FailoverManager) handleLostLease(ctx context.Context, c chan struct{}) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-c:
-		}
+func (f *FailoverManager) shutdownProcesses(ctx context.Context) {
+	logrus.Debugf("shutting down existing processes")
 
-		f.cancel()
-		f.init()
-	}
-}
-
-func (f *FailoverManager) shutdownProcesses() {
 	if f.currentState == failoverStateActive {
-		f.activeProcess.Shutdown()
+		f.activeProcess.Shutdown(ctx)
 	}
 	if f.currentState == failoverStateStandby {
-		f.standbyProcess.Shutdown()
+		f.standbyProcess.Shutdown(ctx)
 	}
 
 	f.currentState = 0
+
+	logrus.Debugf("shut down existing processes")
 }
 
 // HandleFailure is called by an external process in order to restart
 // the FailoverManager, losing any currently active leases.
-func (f *FailoverManager) HandleFailure(ctx context.Context) {
-	f.cancel()
-	f.shutdownProcesses()
+func (f *FailoverManager) HandleFailure(ctx context.Context, err error) {
+	f.Lock()
+	defer f.Unlock()
 
-	f.clock.Sleep(restartDelay)
+	logrus.Infof("downstream process failed, revoking lease")
 
-	f.init()
+	f.shutdownProcesses(ctx)
+	if err := f.leaseManager.RevokeCurrentLease(ctx); err != nil {
+		logrus.WithError(err).Errorf("error revoking lease while handling process failure")
+	}
+
+	logrus.Debugf("revoked lease")
 }
 
 func (f *FailoverManager) handleActive(ctx context.Context) {
-	f.Lock()
-	defer f.Unlock()
+	logrus.Debugf("activating process")
 
 	if f.currentState == failoverStateActive {
+		logrus.Debugf("process already active")
 		return
 	}
 
-	f.shutdownProcesses()
+	f.shutdownProcesses(ctx)
 
 	f.currentState = failoverStateActive
-	f.activeProcess.Activate(f)
+	f.activeProcess.Activate(ctx, f)
+
+	logrus.Infof("activated process")
 }
 
 func (f *FailoverManager) handleStandby(ctx context.Context) {
-	f.Lock()
-	defer f.Unlock()
-
+	logrus.Debugf("creating standby process")
 	if f.currentState == failoverStateStandby {
+		logrus.Debugf("standby process already exists")
 		return
 	}
 
-	f.shutdownProcesses()
+	f.shutdownProcesses(ctx)
 
 	f.currentState = failoverStateStandby
-	f.standbyProcess.Activate(f)
+	f.standbyProcess.Activate(ctx, f)
+
+	logrus.Infof("created standby process")
 }

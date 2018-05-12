@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	leaseRecoveryDelay     = 5 * time.Second
+	leaseRecoveryDelay     = 10 * time.Second
 	defaultLeaseTTLSeconds = 10
 )
 
@@ -27,28 +27,39 @@ var (
 // EtcdLeaseManager always maintains an Etcd lease, notifying through a
 // channel when the current lease is lost.
 type EtcdLeaseManager struct {
-	lockTTLSeconds int64
-	clock          clock.Clock
-	leaseClient    clientv3.Lease
-	id             clientv3.LeaseID
-	newLeaseChan   chan struct{}
-	lostLeaseChan  chan struct{}
+	lockTTLSeconds     int64
+	clock              clock.Clock
+	leaseClient        clientv3.Lease
+	id                 clientv3.LeaseID
+	firstLeaseChan     chan struct{}
+	firstLeaseAttained bool
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
 func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
-	leaseClient clientv3.Lease, newLeaseChan, lostLeaseChan chan struct{}) *EtcdLeaseManager {
+	leaseClient clientv3.Lease, firstLeaseChan chan struct{}) *EtcdLeaseManager {
 	return &EtcdLeaseManager{
 		clock:          clock,
 		leaseClient:    leaseClient,
 		lockTTLSeconds: lockTTLSeconds,
-		newLeaseChan:   newLeaseChan,
-		lostLeaseChan:  lostLeaseChan,
+		firstLeaseChan: firstLeaseChan,
 	}
+}
+
+// RevokeCurrentLease revokes the current lease. This makes it so that
+// the LeaseManager requests a new lease.
+func (l *EtcdLeaseManager) RevokeCurrentLease(ctx context.Context) error {
+	if _, err := l.leaseClient.Revoke(ctx, l.id); err != nil {
+		return errors.Wrapf(err, "error revoking current lease")
+	}
+
+	return nil
 }
 
 // Start begins the process of attaining and renewing leases.
 func (l *EtcdLeaseManager) Start(ctx context.Context) {
+	logrus.Info("starting lease manager")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -68,11 +79,10 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 		if err := l.manageKeepAlive(ctx); err != nil {
 			logrus.WithError(err).Errorf("error managing lease keep-alive")
-			l.clock.Sleep(leaseRecoveryDelay)
-			continue
 		}
 
 		logrus.Warn("lost Etcd lease")
+		l.clock.Sleep(leaseRecoveryDelay)
 	}
 }
 
@@ -93,8 +103,9 @@ func (l *EtcdLeaseManager) attainLease(ctx context.Context) error {
 
 	atomic.StoreInt64((*int64)(&l.id), int64(response.ID))
 
-	if l.newLeaseChan != nil {
-		l.newLeaseChan <- struct{}{}
+	if !l.firstLeaseAttained && l.firstLeaseChan != nil {
+		l.firstLeaseChan <- struct{}{}
+		l.firstLeaseAttained = true
 	}
 
 	return nil
@@ -118,9 +129,6 @@ func (l *EtcdLeaseManager) manageKeepAlive(ctx context.Context) error {
 	logrus.Debug("Etcd keep-alive ended")
 
 	atomic.StoreInt64((*int64)(&l.id), 0)
-	if l.lostLeaseChan != nil {
-		l.lostLeaseChan <- struct{}{}
-	}
 
 	return nil
 }
@@ -192,7 +200,7 @@ func (e *EtcdMutex) Lock(ctx context.Context) (bool, error) {
 	}
 
 	_, err = e.kvClient.Txn(ctx).If(
-		clientv3.Compare(clientv3.LeaseValue(e.key), "<", 1),
+		clientv3.Compare(clientv3.LeaseValue(e.key), "=", 0),
 	).Then(
 		clientv3.OpPut(e.key, e.id, clientv3.WithLease(leaseID)),
 	).Commit()
