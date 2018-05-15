@@ -1,5 +1,7 @@
 package nodeosmonitor
 
+// Config are all of the different options available for use by a
+// monitor.
 type Config struct {
 	NodeosPath                string
 	NodeosArgs                []string
