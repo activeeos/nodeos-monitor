@@ -58,6 +58,8 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
+	// Set a lease on the key before we use it so that it's
+	// inaccessible.
 	response, err := conf.LeaseClient.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -75,4 +77,88 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 	if err := failoverManager.TryActivate(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
+	conf, failoverManager := failoverManager(t)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	conf.ActiveProcess.(*mocks.Process).On("Activate",
+		mock.Anything, failoverManager).Return()
+	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+
+	// TODO: figure out how to remove time dependency from here, maybe
+	// by watching the Etcd key.
+
+	failoverManager.Start(ctx)
+	time.Sleep(time.Second)
+
+	fc := conf.Clock.(*fakeclock.FakeClock)
+	fc.WaitForWatcherAndIncrement(10 * time.Second)
+	time.Sleep(time.Second)
+}
+
+func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
+	conf, failoverManager := failoverManager(t)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	// Set a lease on the key before we use it so that it's
+	// inaccessible.
+	response, err := conf.LeaseClient.Grant(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conf.KVClient.Put(ctx, conf.EtcdKey, "woo",
+		clientv3.WithLease(response.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	conf.StandbyProcess.(*mocks.Process).On("Activate",
+		mock.Anything, failoverManager).Return()
+	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+
+	// TODO: figure out how to remove time dependency from here, maybe
+	// by watching the Etcd key.
+
+	failoverManager.Start(ctx)
+	time.Sleep(time.Second)
+
+	fc := conf.Clock.(*fakeclock.FakeClock)
+	fc.WaitForWatcherAndIncrement(10 * time.Second)
+	time.Sleep(time.Second)
+}
+
+func TestFailoverManagerFromChanImmediatelySuccess(t *testing.T) {
+	conf, failoverManager := failoverManager(t)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	conf.ActiveProcess.(*mocks.Process).On("Activate",
+		mock.Anything, failoverManager).Return()
+	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+
+	// Set a lease on the key before we use it so that it's
+	// inaccessible.
+	response, err := conf.LeaseClient.Grant(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conf.KVClient.Put(ctx, conf.EtcdKey, "woo",
+		clientv3.WithLease(response.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	failoverManager.Start(ctx)
+	time.Sleep(time.Second)
+
+	if _, err := conf.KVClient.Delete(ctx, conf.EtcdKey); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Second)
 }

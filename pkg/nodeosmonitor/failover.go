@@ -107,13 +107,14 @@ func (f *FailoverManager) Start(ctx context.Context) {
 }
 
 func (f *FailoverManager) tryActivatePeriodically(ctx context.Context) {
-	ticker := time.NewTicker(periodicActivationInterval)
+	ticker := f.clock.NewTicker(periodicActivationInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 		}
 
 		logrus.Debugf("trying to activate process periodically")
@@ -205,7 +206,7 @@ func (f *FailoverManager) HandleFailure(ctx context.Context, err error) {
 }
 
 func (f *FailoverManager) handleActive(ctx context.Context) {
-	logrus.Debugf("activating process")
+	logrus.Debugf(" activating process")
 
 	if f.currentState == failoverStateActive {
 		logrus.Debugf("process already active")
