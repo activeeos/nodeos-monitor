@@ -46,19 +46,7 @@ func NewProcessMonitor(path string, args []string) *ProcessMonitor {
 	}
 }
 
-// Activate starts the underlying process.
-func (p *ProcessMonitor) Activate(ctx context.Context,
-	failureHandler ProcessFailureHandler) error {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.cmd != nil {
-		return errors.New("error process is already active")
-	}
-
-	cmd := exec.CommandContext(ctx, p.path, p.args...)
-
-	// Print all stdin/stderr output to the logrus logger.
+func manageWrappedProcessOut(cmd *exec.Cmd) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return errors.Wrapf(err, "error opening stdout pipe")
@@ -86,6 +74,34 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 			logrus.WithError(err).Errorf("error scanning stderr")
 		}
 	}()
+
+	return nil
+}
+
+// IsActive returns true if the underlying process is active.
+func (p *ProcessMonitor) IsActive() bool {
+	p.Lock()
+	defer p.Unlock()
+
+	return p.cmd != nil
+}
+
+// Activate starts the underlying process.
+func (p *ProcessMonitor) Activate(ctx context.Context,
+	failureHandler ProcessFailureHandler) error {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.cmd != nil {
+		return errors.New("error process is already active")
+	}
+
+	cmd := exec.CommandContext(ctx, p.path, p.args...)
+
+	// Print all stdin/stderr output to the logrus logger.
+	if err := manageWrappedProcessOut(cmd); err != nil {
+		return errors.Wrapf(err, "error managing wrapped process output")
+	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
@@ -129,7 +145,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 // Shutdown shuts the current process down.
 func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	p.Lock()
-	p.Unlock()
+	defer p.Unlock()
 
 	// This is to let goroutines know that this isn't a random
 	// failure.
@@ -138,13 +154,12 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	if p.cmd == nil {
 		return errors.New("process monitor doesn't have an underlying process")
 	}
-	if !p.cmd.ProcessState.Exited() {
+	if p.cmd.ProcessState == nil {
 		if err := p.cmd.Process.Kill(); err != nil {
 			return errors.Wrapf(err, "error killing the process")
 		}
 	}
 
-	p.shutdown = false
 	p.cmd = nil
 
 	return nil

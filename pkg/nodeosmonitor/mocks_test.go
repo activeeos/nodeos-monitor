@@ -40,3 +40,11 @@ func (m *mockMonitorable) isShutdown() bool {
 	defer m.Unlock()
 	return m.shutdown
 }
+
+type mockFailureHandler struct {
+	notification chan struct{}
+}
+
+func (m *mockFailureHandler) HandleFailure(ctx context.Context) {
+	m.notification <- struct{}{}
+}
