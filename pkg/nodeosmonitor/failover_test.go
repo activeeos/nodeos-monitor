@@ -19,8 +19,8 @@ func failoverManager(t *testing.T) (*nodeosmonitor.FailoverConfig,
 	client := nodeosmonitor.GetEtcdClient(t)
 	id := uuid.New().String()
 	key := uuid.New().String()
-	activeProcess := &mocks.Process{}
-	standbyProcess := &mocks.Process{}
+	activeProcess := &mocks.Monitorable{}
+	standbyProcess := &mocks.Monitorable{}
 
 	conf := &nodeosmonitor.FailoverConfig{
 		ID:             id,
@@ -42,9 +42,9 @@ func TestFailoverManagerActivateImmediatelySuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	conf.ActiveProcess.(*mocks.Process).On("Activate",
-		mock.Anything, failoverManager).Return()
-	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
+		mock.Anything, failoverManager).Return(nil)
+	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	failoverManager.Start(ctx)
 	if err := failoverManager.TryActivate(ctx); err != nil {
@@ -69,9 +69,9 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conf.StandbyProcess.(*mocks.Process).On("Activate",
-		mock.Anything, failoverManager).Return()
-	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+	conf.StandbyProcess.(*mocks.Monitorable).On("Activate",
+		mock.Anything, failoverManager).Return(nil)
+	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	failoverManager.Start(ctx)
 	if err := failoverManager.TryActivate(ctx); err != nil {
@@ -85,9 +85,9 @@ func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	conf.ActiveProcess.(*mocks.Process).On("Activate",
-		mock.Anything, failoverManager).Return()
-	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
+		mock.Anything, failoverManager).Return(nil)
+	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	// TODO: figure out how to remove time dependency from here, maybe
 	// by watching the Etcd key.
@@ -117,9 +117,9 @@ func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conf.StandbyProcess.(*mocks.Process).On("Activate",
-		mock.Anything, failoverManager).Return()
-	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+	conf.StandbyProcess.(*mocks.Monitorable).On("Activate",
+		mock.Anything, failoverManager).Return(nil)
+	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	// TODO: figure out how to remove time dependency from here, maybe
 	// by watching the Etcd key.
@@ -138,9 +138,9 @@ func TestFailoverManagerFromChanImmediatelySuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	conf.ActiveProcess.(*mocks.Process).On("Activate",
-		mock.Anything, failoverManager).Return()
-	defer conf.ActiveProcess.(*mocks.Process).AssertExpectations(t)
+	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
+		mock.Anything, failoverManager).Return(nil)
+	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.

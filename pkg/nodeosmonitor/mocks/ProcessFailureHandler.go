@@ -9,7 +9,7 @@ type ProcessFailureHandler struct {
 	mock.Mock
 }
 
-// HandleFailure provides a mock function with given fields: ctx, err
-func (_m *ProcessFailureHandler) HandleFailure(ctx context.Context, err error) {
-	_m.Called(ctx, err)
+// HandleFailure provides a mock function with given fields: ctx
+func (_m *ProcessFailureHandler) HandleFailure(ctx context.Context) {
+	_m.Called(ctx)
 }
