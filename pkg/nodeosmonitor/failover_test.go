@@ -7,10 +7,8 @@ import (
 
 	"code.cloudfoundry.org/clock/fakeclock"
 	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor"
-	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor/mocks"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/mock"
 )
 
 func failoverManager(t *testing.T) (*nodeosmonitor.FailoverConfig,
@@ -19,8 +17,8 @@ func failoverManager(t *testing.T) (*nodeosmonitor.FailoverConfig,
 	client := nodeosmonitor.GetEtcdClient(t)
 	id := uuid.New().String()
 	key := uuid.New().String()
-	activeProcess := &mocks.Monitorable{}
-	standbyProcess := &mocks.Monitorable{}
+	activeProcess := &mockMonitorable{}
+	standbyProcess := &mockMonitorable{}
 
 	conf := &nodeosmonitor.FailoverConfig{
 		ID:             id,
@@ -42,13 +40,13 @@ func TestFailoverManagerActivateImmediatelySuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
-		mock.Anything, failoverManager).Return(nil)
-	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
-
 	failoverManager.Start(ctx)
 	if err := failoverManager.TryActivate(ctx); err != nil {
 		t.Fatal(err)
+	}
+
+	if !conf.ActiveProcess.(*mockMonitorable).isActivated() {
+		t.Fatal("process should be activated")
 	}
 }
 
@@ -69,13 +67,13 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conf.StandbyProcess.(*mocks.Monitorable).On("Activate",
-		mock.Anything, failoverManager).Return(nil)
-	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
-
 	failoverManager.Start(ctx)
 	if err := failoverManager.TryActivate(ctx); err != nil {
 		t.Fatal(err)
+	}
+
+	if !conf.StandbyProcess.(*mockMonitorable).isActivated() {
+		t.Fatal("process should be activated")
 	}
 }
 
@@ -84,10 +82,6 @@ func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
-
-	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
-		mock.Anything, failoverManager).Return(nil)
-	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	// TODO: figure out how to remove time dependency from here, maybe
 	// by watching the Etcd key.
@@ -98,6 +92,10 @@ func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
 	fc := conf.Clock.(*fakeclock.FakeClock)
 	fc.WaitForWatcherAndIncrement(10 * time.Second)
 	time.Sleep(time.Second)
+
+	if !conf.ActiveProcess.(*mockMonitorable).isActivated() {
+		t.Fatal("process should be activated")
+	}
 }
 
 func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
@@ -117,10 +115,6 @@ func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conf.StandbyProcess.(*mocks.Monitorable).On("Activate",
-		mock.Anything, failoverManager).Return(nil)
-	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
-
 	// TODO: figure out how to remove time dependency from here, maybe
 	// by watching the Etcd key.
 
@@ -130,17 +124,17 @@ func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
 	fc := conf.Clock.(*fakeclock.FakeClock)
 	fc.WaitForWatcherAndIncrement(10 * time.Second)
 	time.Sleep(time.Second)
+
+	if !conf.StandbyProcess.(*mockMonitorable).isActivated() {
+		t.Fatal("process should be activated")
+	}
 }
 
-func TestFailoverManagerFromChanImmediatelySuccess(t *testing.T) {
+func TestFailoverManagerFromChanSuccess(t *testing.T) {
 	conf, failoverManager := failoverManager(t)
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
-
-	conf.ActiveProcess.(*mocks.Monitorable).On("Activate",
-		mock.Anything, failoverManager).Return(nil)
-	defer conf.ActiveProcess.(*mocks.Monitorable).AssertExpectations(t)
 
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
@@ -161,4 +155,8 @@ func TestFailoverManagerFromChanImmediatelySuccess(t *testing.T) {
 	}
 
 	time.Sleep(time.Second)
+
+	if !conf.ActiveProcess.(*mockMonitorable).isActivated() {
+		t.Fatal("process should be activated")
+	}
 }

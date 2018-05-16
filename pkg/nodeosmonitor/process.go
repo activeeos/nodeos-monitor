@@ -99,7 +99,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	exitedChan := make(chan struct{})
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			logrus.WithError(err).Errorf("error waiting for command to finish execution")
+			logrus.WithError(err).Errorf("error waiting for command to finish executing")
 		}
 		close(exitedChan)
 	}()

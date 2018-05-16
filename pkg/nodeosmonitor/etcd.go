@@ -2,9 +2,8 @@ package nodeosmonitor
 
 import (
 	"context"
+	"sync"
 	"time"
-
-	"sync/atomic"
 
 	"code.cloudfoundry.org/clock"
 	"github.com/coreos/etcd/clientv3"
@@ -27,6 +26,7 @@ var (
 // EtcdLeaseManager always maintains an Etcd lease, notifying through a
 // channel when the current lease is lost.
 type EtcdLeaseManager struct {
+	sync.Mutex
 	lockTTLSeconds     int64
 	clock              clock.Clock
 	leaseClient        clientv3.Lease
@@ -88,6 +88,9 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 // LeaseID returns the current Etcd lease ID.
 func (l *EtcdLeaseManager) LeaseID() (clientv3.LeaseID, error) {
+	l.Lock()
+	defer l.Unlock()
+
 	if l.id == 0 {
 		return 0, ErrNoLease
 	}
@@ -96,12 +99,15 @@ func (l *EtcdLeaseManager) LeaseID() (clientv3.LeaseID, error) {
 }
 
 func (l *EtcdLeaseManager) attainLease(ctx context.Context) error {
+	l.Lock()
+	defer l.Unlock()
+
 	response, err := l.leaseClient.Grant(ctx, l.lockTTLSeconds)
 	if err != nil {
 		return errors.Wrapf(err, "error granting lease")
 	}
 
-	atomic.StoreInt64((*int64)(&l.id), int64(response.ID))
+	l.id = response.ID
 
 	if !l.firstLeaseAttained && l.firstLeaseChan != nil {
 		l.firstLeaseChan <- struct{}{}
@@ -128,7 +134,9 @@ func (l *EtcdLeaseManager) manageKeepAlive(ctx context.Context) error {
 
 	logrus.Debug("Etcd keep-alive ended")
 
-	atomic.StoreInt64((*int64)(&l.id), 0)
+	l.Lock()
+	l.id = 0
+	l.Unlock()
 
 	return nil
 }
