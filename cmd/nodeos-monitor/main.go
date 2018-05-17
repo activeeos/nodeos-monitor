@@ -40,9 +40,9 @@ func init() {
 		"the path to the nodeos binary")
 	rootCmd.Flags().StringArrayVar(&config.NodeosArgs, "nodeos-args", nil,
 		"additional arguments to pass to nodeos")
-	rootCmd.Flags().StringVar(&config.ActiveConfigDir, "active-config-dir", "/etc/nodeos-active/",
+	rootCmd.Flags().StringVar(&config.ActiveConfigDir, "active-config-dir", "/etc/nodeos-active-configs/",
 		"the directory containing the configs for an active nodeos process")
-	rootCmd.Flags().StringVar(&config.StandbyConfigDir, "standby-config-dir", "/etc/nodeos-standby/",
+	rootCmd.Flags().StringVar(&config.StandbyConfigDir, "standby-config-dir", "/etc/nodeos-standby-configs/",
 		"the directory containing the configs for a standby nodeos process")
 	rootCmd.Flags().StringArrayVar(&config.EtcdEndpoints, "etcd-endpoints", []string{"http://127.0.0.1:2379"},
 		"the endpoints to Etcd")
