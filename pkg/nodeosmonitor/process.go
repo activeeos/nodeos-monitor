@@ -92,8 +92,10 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	p.Lock()
 	defer p.Unlock()
 
+	logrus.Debugf("activating process %v", p.path)
+
 	if p.cmd != nil {
-		return errors.New("error process is already active")
+		return errors.New("error: process is already active")
 	}
 
 	cmd := exec.CommandContext(ctx, p.path, p.args...)
@@ -129,14 +131,20 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 			return
 		}
 
+		logrus.Debugf("detected process failure %v", p.path)
+
 		// Check that this is a random failure, not a shutdown.
 		p.Lock()
 		if p.shutdown {
 			return
 		}
-		p.Unlock()
+		defer p.Unlock()
 
 		failureHandler.HandleFailure(ctx)
+
+		if err := p.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Errorf("error shutting down process")
+		}
 	}()
 
 	return nil
@@ -147,20 +155,28 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	p.Lock()
 	defer p.Unlock()
 
+	logrus.Debugf("shutting down process %v", p.path)
+
 	// This is to let goroutines know that this isn't a random
 	// failure.
 	p.shutdown = true
 
-	if p.cmd == nil {
-		return errors.New("process monitor doesn't have an underlying process")
-	}
-	if p.cmd.ProcessState == nil {
+	// if p.cmd == nil {
+	// 	return errors.New("process monitor doesn't have an underlying process")
+	// }
+	if p.cmd != nil && p.cmd.ProcessState == nil {
+		logrus.Debugf("killing process %v", p.path)
+
 		if err := p.cmd.Process.Kill(); err != nil {
 			return errors.Wrapf(err, "error killing the process")
 		}
+
+		logrus.Debugf("killed process %v", p.path)
 	}
 
 	p.cmd = nil
+
+	logrus.Debugf("shut down process %v", p.path)
 
 	return nil
 }

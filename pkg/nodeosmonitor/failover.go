@@ -154,10 +154,16 @@ func (f *FailoverManager) tryActivate(ctx context.Context) error {
 	}
 
 	if locked {
+		if f.currentState == failoverStateActive {
+			return nil
+		}
 		if err := f.handleActive(ctx); err != nil {
 			return errors.Wrapf(err, "error activating active process")
 		}
 	} else {
+		if f.currentState == failoverStateStandby {
+			return nil
+		}
 		if err := f.handleStandby(ctx); err != nil {
 			return errors.Wrapf(err, "error activating standby process")
 		}
