@@ -1,8 +1,4 @@
-.PHONY: mocks dev_etcd
-
-mocks:
-	rm pkg/nodeosmonitor/mocks/* || exit 0
-	mockery -all -output  pkg/nodeosmonitor/mocks
+.PHONY: dev_etcd
 
 dev_etcd:
 	docker run -it --rm --name etcd -p 22379:2379 quay.io/coreos/etcd:v3.3 \
