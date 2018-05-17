@@ -30,16 +30,17 @@ An Etcd cluster is needed for distributed locking. If the failover
 group will cross data center boundaries, the Etcd cluster needs to
 span all data centers.
 
-### Etcd resources
+#### Etcd resources
 
-[Admin guide](https://coreos.com/etcd/docs/latest/v2/admin_guide.html)
+[Etcd Admin guide](https://coreos.com/etcd/docs/latest/v2/admin_guide.html)
 
 Use this guide for guidance on building out an Etcd cluster.
 
 [Etcd tuning guide](https://coreos.com/etcd/docs/latest/tuning.html)
 
-Etcd clusters must be tuned if they span multiple data centers for
-high latencies.
+Use this guide for tuning an Etcd cluster. This is especially useful
+for clusters that span multiple datacenters, since Etcd must be tuned
+for high latencies.
 
 ### Installation
 
