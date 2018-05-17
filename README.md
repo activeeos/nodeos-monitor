@@ -20,9 +20,9 @@ achieve a distributed lock on an Etcd key. If the lock can't be
 attained or if the lock is at some point lost, `nodeos-monitor`
 switches `nodeos` to the standby configuration set.
 
-### Usage
+## Usage
 
-## Prerequisites
+### Prerequisites
 
 * Etcd cluster
 
@@ -41,7 +41,7 @@ Use this guide for guidance on building out an Etcd cluster.
 Etcd clusters must be tuned if they span multiple data centers for
 high latencies.
 
-## Installation
+### Installation
 
 On a machine with the Go runtime installed, run
 
@@ -51,7 +51,7 @@ $ go get -u github.com/activeeos/nodeos-monitor/cmd/nodeos-monitor
 
 In the future, Github releases will be created.
 
-## Configuration
+### Configuration
 
 `nodeos-monitor` is configured via command line flags:
 
