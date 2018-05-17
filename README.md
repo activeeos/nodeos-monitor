@@ -80,17 +80,17 @@ Flags:
 
 Here are the most useful options:
 
-* `active-config-dir`
+#### `active-config-dir`
 
 This is the directory containing a `config.ini` file for the active
 `nodeos` process, usually a block producer.
 
-* `standby-config-dir`
+#### `standby-config-dir`
 
 This is the directory containing a `config.ini` file for the standby
 `nodeos` process, usually a validator node.
 
-* `failover-group`
+#### `failover-group`
 
 A failover group is a unique descriptor for the block producer all
 nodes are vying to be. This is the key that's used in building the
