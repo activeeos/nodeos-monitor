@@ -17,8 +17,6 @@ var rootCmd = &cobra.Command{
 	Use:   "nodeos-monitor",
 	Short: "nodeos-monitor provides failover for EOS nodes",
 	Run: func(cmd *cobra.Command, args []string) {
-		logrus.SetLevel(logrus.DebugLevel)
-
 		monitor, err := nodeosmonitor.NewNodeosMonitor(&config)
 		if err != nil {
 			logrus.WithError(err).Fatalf("error starting monitor")
@@ -48,6 +46,7 @@ func init() {
 		"the Etcd CA to use")
 	rootCmd.Flags().StringVar(&config.FailoverGroup, "failover-group", "eos",
 		"the identifier for the group of nodes involved in the failover process")
+	rootCmd.Flags().BoolVar(&config.DebugMode, "debug", false, "print debug logs")
 }
 
 func main() {

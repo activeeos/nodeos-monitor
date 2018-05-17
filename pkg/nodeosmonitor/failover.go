@@ -15,14 +15,14 @@ import (
 
 const (
 	failoverStateActive  = 1
-	failoverStateStandby = iota
+	failoverStateStandby = 2
 
 	periodicActivationInterval = 5 * time.Second
 )
 
 // FailoverManager manages a failover system for a process using
-// Etcd. The active version of a Monitorable is activated when a lock is
-// attained on an Etcd key. The standby version of a process is
+// Etcd. The active version of a Monitorable is activated when a lock
+// is attained on an Etcd key. The standby version of a process is
 // activated when the lock is lost or if it isn't
 // attainable. Additionally, FailoverManager supports being notified
 // of a downstream failure, which causes it to lose its Etcd lease and
@@ -197,11 +197,26 @@ func (f *FailoverManager) shutdownProcesses(ctx context.Context) error {
 	return nil
 }
 
+func (f *FailoverManager) currentProcess() Monitorable {
+	switch f.currentState {
+	case failoverStateActive:
+		return f.activeProcess
+	case failoverStateStandby:
+		return f.standbyProcess
+	}
+
+	return nil
+}
+
 // HandleFailure is called by an external process in order to restart
 // the FailoverManager, losing any currently active leases.
-func (f *FailoverManager) HandleFailure(ctx context.Context) {
+func (f *FailoverManager) HandleFailure(ctx context.Context, m Monitorable) {
 	f.Lock()
 	defer f.Unlock()
+
+	if m != f.currentProcess() {
+		return
+	}
 
 	logrus.Infof("downstream process failed, revoking lease")
 
@@ -213,7 +228,7 @@ func (f *FailoverManager) HandleFailure(ctx context.Context) {
 		logrus.WithError(err).Errorf("error revoking lease while handling process failure")
 	}
 
-	logrus.Debugf("revoked lease")
+	logrus.Infof("revoked lease")
 }
 
 func (f *FailoverManager) handleActive(ctx context.Context) error {

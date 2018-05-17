@@ -25,7 +25,7 @@ type Monitorable interface {
 // ProcessFailureHandler is something that's called when a process
 // fails.
 type ProcessFailureHandler interface {
-	HandleFailure(ctx context.Context)
+	HandleFailure(ctx context.Context, m Monitorable)
 }
 
 // ProcessMonitor monitors a process informing a handler when the
@@ -138,9 +138,9 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 		if p.shutdown {
 			return
 		}
-		defer p.Unlock()
+		p.Unlock()
 
-		failureHandler.HandleFailure(ctx)
+		failureHandler.HandleFailure(ctx, p)
 
 		if err := p.Shutdown(ctx); err != nil {
 			logrus.WithError(err).Errorf("error shutting down process")
@@ -161,13 +161,12 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	// failure.
 	p.shutdown = true
 
-	// if p.cmd == nil {
-	// 	return errors.New("process monitor doesn't have an underlying process")
-	// }
 	if p.cmd != nil && p.cmd.ProcessState == nil {
 		logrus.Debugf("killing process %v", p.path)
 
 		if err := p.cmd.Process.Kill(); err != nil {
+			// TODO: maybe do a kill -9 here if the process doesn't
+			// shut down cleanly?
 			return errors.Wrapf(err, "error killing the process")
 		}
 

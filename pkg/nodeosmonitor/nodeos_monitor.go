@@ -16,6 +16,7 @@ import (
 // Config are all of the different options available for use by a
 // monitor.
 type Config struct {
+	DebugMode        bool
 	NodeosPath       string
 	NodeosArgs       []string
 	ActiveConfigDir  string
@@ -78,6 +79,10 @@ type NodeosMonitor struct {
 
 // NewNodeosMonitor creates a new NodeosMonitor instance.
 func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
+	if conf.DebugMode {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
 	etcd, err := getEtcdClient(conf)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error creating Etcd client")
