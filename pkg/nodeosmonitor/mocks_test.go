@@ -45,6 +45,6 @@ type mockFailureHandler struct {
 	notification chan struct{}
 }
 
-func (m *mockFailureHandler) HandleFailure(ctx context.Context) {
+func (m *mockFailureHandler) HandleFailure(ctx context.Context, _ nodeosmonitor.Monitorable) {
 	m.notification <- struct{}{}
 }

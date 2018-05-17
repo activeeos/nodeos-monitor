@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		ctx := context.Background()
-		monitor.Start(ctx)
+		go monitor.Start(ctx)
 
 		signal := <-shutdown
 		logrus.Debugf("received shutdown signal: %v", signal)

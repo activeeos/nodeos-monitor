@@ -31,7 +31,7 @@ type ProcessFailureHandler interface {
 // ProcessMonitor monitors a process informing a handler when the
 // process fails.
 type ProcessMonitor struct {
-	sync.Mutex
+	mutex    *sync.Mutex
 	path     string
 	args     []string
 	cmd      *exec.Cmd
@@ -41,8 +41,9 @@ type ProcessMonitor struct {
 // NewProcessMonitor returns a new instance of ProcessMonitor.
 func NewProcessMonitor(path string, args []string) *ProcessMonitor {
 	return &ProcessMonitor{
-		path: path,
-		args: args,
+		mutex: &sync.Mutex{},
+		path:  path,
+		args:  args,
 	}
 }
 
@@ -80,8 +81,8 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 
 // IsActive returns true if the underlying process is active.
 func (p *ProcessMonitor) IsActive() bool {
-	p.Lock()
-	defer p.Unlock()
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
 	return p.cmd != nil
 }
@@ -89,8 +90,8 @@ func (p *ProcessMonitor) IsActive() bool {
 // Activate starts the underlying process.
 func (p *ProcessMonitor) Activate(ctx context.Context,
 	failureHandler ProcessFailureHandler) error {
-	p.Lock()
-	defer p.Unlock()
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
 	logrus.Debugf("activating process %v", p.path)
 
@@ -134,11 +135,11 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 		logrus.Debugf("detected process failure %v", p.path)
 
 		// Check that this is a random failure, not a shutdown.
-		p.Lock()
+		p.mutex.Lock()
 		if p.shutdown {
 			return
 		}
-		p.Unlock()
+		p.mutex.Unlock()
 
 		failureHandler.HandleFailure(ctx, p)
 
@@ -152,8 +153,8 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 
 // Shutdown shuts the current process down.
 func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
-	p.Lock()
-	defer p.Unlock()
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
 	logrus.Debugf("shutting down process %v", p.path)
 

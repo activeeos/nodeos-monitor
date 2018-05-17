@@ -28,7 +28,7 @@ const (
 // of a downstream failure, which causes it to lose its Etcd lease and
 // restart.
 type FailoverManager struct {
-	sync.Mutex
+	mutex          *sync.Mutex
 	id             string
 	key            string
 	clock          clock.Clock
@@ -41,7 +41,7 @@ type FailoverManager struct {
 	// Internal fields
 	currentState  int
 	leaseManager  *EtcdLeaseManager
-	mutex         *EtcdMutex
+	etcdMutex     *EtcdMutex
 	notifier      *KeyChangeNotifier
 	leaseAttained chan struct{}
 	shutdown      chan struct{}
@@ -63,6 +63,7 @@ type FailoverConfig struct {
 // NewFailoverManager instantiates a new FailoverManager.
 func NewFailoverManager(config *FailoverConfig) *FailoverManager {
 	return &FailoverManager{
+		mutex:          &sync.Mutex{},
 		id:             config.ID,
 		key:            config.EtcdKey,
 		clock:          config.Clock,
@@ -86,12 +87,14 @@ func (f *FailoverManager) Start(ctx context.Context) {
 		defaultLeaseTTLSeconds, f.leaseClient, f.leaseAttained)
 	go f.leaseManager.Start(ctx)
 
-	f.mutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
+	f.etcdMutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
 
 	notificationChan := make(chan *mvccpb.KeyValue)
 	f.notifier = NewKeyChangeNotifier(f.key, f.watcherClient, notificationChan)
 	go f.notifier.Start(ctx)
 
+	// These are the only things that we have to shutdown safely, thus
+	// the waitgroup.
 	f.wg.Add(2)
 	go f.tryActivateFromChan(ctx, notificationChan)
 	go f.tryActivatePeriodically(ctx)
@@ -161,10 +164,10 @@ func (f *FailoverManager) TryActivate(ctx context.Context) error {
 }
 
 func (f *FailoverManager) tryActivate(ctx context.Context) error {
-	f.Lock()
-	defer f.Unlock()
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
 
-	locked, err := f.mutex.Lock(ctx)
+	locked, err := f.etcdMutex.Lock(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "error trying to lock Etcd mutex")
 	}
@@ -242,8 +245,8 @@ func (f *FailoverManager) Shutdown(ctx context.Context) {
 // HandleFailure is called by an external process in order to restart
 // the FailoverManager, losing any currently active leases.
 func (f *FailoverManager) HandleFailure(ctx context.Context, m Monitorable) {
-	f.Lock()
-	defer f.Unlock()
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
 
 	if m != f.currentProcess() {
 		return

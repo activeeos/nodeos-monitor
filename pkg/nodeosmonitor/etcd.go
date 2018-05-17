@@ -26,7 +26,7 @@ var (
 // EtcdLeaseManager always maintains an Etcd lease, notifying through a
 // channel when the current lease is lost.
 type EtcdLeaseManager struct {
-	sync.Mutex
+	mutex              *sync.Mutex
 	lockTTLSeconds     int64
 	clock              clock.Clock
 	leaseClient        clientv3.Lease
@@ -39,6 +39,7 @@ type EtcdLeaseManager struct {
 func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
 	leaseClient clientv3.Lease, firstLeaseChan chan struct{}) *EtcdLeaseManager {
 	return &EtcdLeaseManager{
+		mutex:          &sync.Mutex{},
 		clock:          clock,
 		leaseClient:    leaseClient,
 		lockTTLSeconds: lockTTLSeconds,
@@ -88,8 +89,8 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 // LeaseID returns the current Etcd lease ID.
 func (l *EtcdLeaseManager) LeaseID() (clientv3.LeaseID, error) {
-	l.Lock()
-	defer l.Unlock()
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
 	if l.id == 0 {
 		return 0, ErrNoLease
@@ -99,8 +100,8 @@ func (l *EtcdLeaseManager) LeaseID() (clientv3.LeaseID, error) {
 }
 
 func (l *EtcdLeaseManager) attainLease(ctx context.Context) error {
-	l.Lock()
-	defer l.Unlock()
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
 	response, err := l.leaseClient.Grant(ctx, l.lockTTLSeconds)
 	if err != nil {
@@ -134,9 +135,9 @@ func (l *EtcdLeaseManager) manageKeepAlive(ctx context.Context) error {
 
 	logrus.Debug("Etcd keep-alive ended")
 
-	l.Lock()
+	l.mutex.Lock()
 	l.id = 0
-	l.Unlock()
+	l.mutex.Unlock()
 
 	return nil
 }
