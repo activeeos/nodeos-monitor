@@ -23,7 +23,7 @@ type Config struct {
 	EtcdCertPath     string
 	EtcdKeyPath      string
 	EtcdCAPath       string
-	EtcdKey          string
+	FailoverGroup    string
 }
 
 func getEtcdClient(conf *Config) (*clientv3.Client, error) {
@@ -96,7 +96,7 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 
 	failoverConfig := &FailoverConfig{
 		ID:             uuid.New().String(),
-		EtcdKey:        conf.EtcdKey,
+		EtcdKey:        conf.FailoverGroup,
 		Clock:          clock.NewClock(),
 		LeaseClient:    etcd.Lease,
 		WatcherClient:  etcd.Watcher,
@@ -111,7 +111,8 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 	}, nil
 }
 
-// Start begins the Nodeos monitoring process.
+// Start begins the Nodeos monitoring process. Start runs
+// asynchronously and immediately returns.
 func (n *NodeosMonitor) Start(ctx context.Context) {
 	n.failover.Start(ctx)
 }
