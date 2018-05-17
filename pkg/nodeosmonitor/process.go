@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"bufio"
 
@@ -36,6 +37,7 @@ type ProcessMonitor struct {
 	args     []string
 	cmd      *exec.Cmd
 	shutdown bool
+	exited   chan struct{}
 }
 
 // NewProcessMonitor returns a new instance of ProcessMonitor.
@@ -112,22 +114,25 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	}
 	p.cmd = cmd
 	p.shutdown = false
+	p.exited = make(chan struct{})
 
 	// Create exited channel so that we can wait for this in next
 	// goroutine.
-	exitedChan := make(chan struct{})
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			logrus.WithError(err).Errorf("error waiting for command to finish executing")
+			// We only care if the process didn't exit.
+			if cmd.ProcessState == nil {
+				logrus.WithError(err).Errorf("error waiting for command to finish executing")
+			}
 		}
-		close(exitedChan)
+		close(p.exited)
 	}()
 
 	// This goroutine waits until the process fails, notifying the
 	// failure handler.
 	go func() {
 		select {
-		case <-exitedChan:
+		case <-p.exited:
 		case <-ctx.Done():
 			return
 		}
@@ -143,6 +148,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 
 		failureHandler.HandleFailure(ctx, p)
 
+		// Cleanup after the process if this is a random failure.
 		if err := p.Shutdown(ctx); err != nil {
 			logrus.WithError(err).Errorf("error shutting down process")
 		}
@@ -163,14 +169,17 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	p.shutdown = true
 
 	if p.cmd != nil && p.cmd.ProcessState == nil {
-		logrus.Debugf("killing process %v", p.path)
+		logrus.Debugf("sending SIGTERM to process %v", p.path)
 
-		if err := p.cmd.Process.Kill(); err != nil {
+		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			// TODO: maybe do a kill -9 here if the process doesn't
-			// shut down cleanly?
+			// shut down cleanly after a timeout?
 			return errors.Wrapf(err, "error killing the process")
 		}
 
+		logrus.Debugf("waiting for process %v to exit", p.path)
+
+		<-p.exited
 		logrus.Debugf("killed process %v", p.path)
 	}
 

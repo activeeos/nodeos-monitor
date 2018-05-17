@@ -33,17 +33,23 @@ type EtcdLeaseManager struct {
 	id                 clientv3.LeaseID
 	firstLeaseChan     chan struct{}
 	firstLeaseAttained bool
+	wg                 *sync.WaitGroup
+	shutdown           chan struct{}
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
 func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
 	leaseClient clientv3.Lease, firstLeaseChan chan struct{}) *EtcdLeaseManager {
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 	return &EtcdLeaseManager{
 		mutex:          &sync.Mutex{},
 		clock:          clock,
 		leaseClient:    leaseClient,
 		lockTTLSeconds: lockTTLSeconds,
 		firstLeaseChan: firstLeaseChan,
+		wg:             wg,
+		shutdown:       make(chan struct{}),
 	}
 }
 
@@ -57,12 +63,26 @@ func (l *EtcdLeaseManager) RevokeCurrentLease(ctx context.Context) error {
 	return nil
 }
 
+// Shutdown shuts down the lease manager, revoking all leases.
+func (l *EtcdLeaseManager) Shutdown(ctx context.Context) {
+	logrus.Infof("shutting down Etcd lease manager")
+
+	close(l.shutdown)
+	if err := l.RevokeCurrentLease(ctx); err != nil {
+		logrus.WithError(err).Errorf("error revoking lease while shutting down")
+	}
+	l.wg.Wait()
+}
+
 // Start begins the process of attaining and renewing leases.
 func (l *EtcdLeaseManager) Start(ctx context.Context) {
+	defer l.wg.Done()
 	logrus.Info("starting lease manager")
 
 	for {
 		select {
+		case <-l.shutdown:
+			return
 		case <-ctx.Done():
 			return
 		default:
@@ -83,7 +103,11 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		}
 
 		logrus.Warn("lost Etcd lease")
-		l.clock.Sleep(leaseRecoveryDelay)
+
+		// Only perform the delay if we're not shutting down.
+		if _, ok := <-l.shutdown; ok {
+			l.clock.Sleep(leaseRecoveryDelay)
+		}
 	}
 }
 

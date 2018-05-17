@@ -176,6 +176,9 @@ func (f *FailoverManager) tryActivate(ctx context.Context) error {
 		if f.currentState == failoverStateActive {
 			return nil
 		}
+
+		logrus.Infof("attained Etcd lock for %s", f.key)
+
 		if err := f.handleActive(ctx); err != nil {
 			return errors.Wrapf(err, "error activating active process")
 		}
@@ -183,6 +186,9 @@ func (f *FailoverManager) tryActivate(ctx context.Context) error {
 		if f.currentState == failoverStateStandby {
 			return nil
 		}
+
+		logrus.Infof("did not attain Etcd lock for key %s", f.key)
+
 		if err := f.handleStandby(ctx); err != nil {
 			return errors.Wrapf(err, "error activating standby process")
 		}
@@ -240,6 +246,8 @@ func (f *FailoverManager) Shutdown(ctx context.Context) {
 			logrus.WithError(err).Errorf("error shutting down process")
 		}
 	}
+
+	f.leaseManager.Shutdown(ctx)
 }
 
 // HandleFailure is called by an external process in order to restart
@@ -266,7 +274,7 @@ func (f *FailoverManager) HandleFailure(ctx context.Context, m Monitorable) {
 }
 
 func (f *FailoverManager) handleActive(ctx context.Context) error {
-	logrus.Debugf("activating active process")
+	logrus.Infof("activating active process")
 
 	if f.currentState == failoverStateActive {
 		return errors.New("error: process already active")
@@ -288,7 +296,7 @@ func (f *FailoverManager) handleActive(ctx context.Context) error {
 }
 
 func (f *FailoverManager) handleStandby(ctx context.Context) error {
-	logrus.Debugf("activating standby process")
+	logrus.Infof("activating standby process")
 
 	if f.currentState == failoverStateStandby {
 		return errors.New("error: standby process already exists")
