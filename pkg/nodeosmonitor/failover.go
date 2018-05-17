@@ -44,6 +44,8 @@ type FailoverManager struct {
 	mutex         *EtcdMutex
 	notifier      *KeyChangeNotifier
 	leaseAttained chan struct{}
+	shutdown      chan struct{}
+	wg            *sync.WaitGroup
 }
 
 // FailoverConfig contains the parameters for a FailoverManager.
@@ -70,6 +72,8 @@ func NewFailoverManager(config *FailoverConfig) *FailoverManager {
 		activeProcess:  config.ActiveProcess,
 		standbyProcess: config.StandbyProcess,
 		leaseAttained:  make(chan struct{}, 1),
+		shutdown:       make(chan struct{}),
+		wg:             &sync.WaitGroup{},
 	}
 }
 
@@ -87,6 +91,8 @@ func (f *FailoverManager) Start(ctx context.Context) {
 	notificationChan := make(chan *mvccpb.KeyValue)
 	f.notifier = NewKeyChangeNotifier(f.key, f.watcherClient, notificationChan)
 	go f.notifier.Start(ctx)
+
+	f.wg.Add(2)
 	go f.tryActivateFromChan(ctx, notificationChan)
 	go f.tryActivatePeriodically(ctx)
 
@@ -94,11 +100,15 @@ func (f *FailoverManager) Start(ctx context.Context) {
 }
 
 func (f *FailoverManager) tryActivatePeriodically(ctx context.Context) {
+	defer f.wg.Done()
+
 	ticker := f.clock.NewTicker(periodicActivationInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-f.shutdown:
+			return
 		case <-ctx.Done():
 			return
 		case <-ticker.C():
@@ -113,8 +123,12 @@ func (f *FailoverManager) tryActivatePeriodically(ctx context.Context) {
 }
 
 func (f *FailoverManager) tryActivateFromChan(ctx context.Context, c chan *mvccpb.KeyValue) {
+	defer f.wg.Done()
+
 	for {
 		select {
+		case <-f.shutdown:
+			return
 		case <-ctx.Done():
 			return
 		case <-c:
@@ -132,6 +146,8 @@ func (f *FailoverManager) tryActivateFromChan(ctx context.Context, c chan *mvccp
 // attained.
 func (f *FailoverManager) TryActivate(ctx context.Context) error {
 	select {
+	case <-f.shutdown:
+		return nil
 	case <-ctx.Done():
 		return nil
 	case <-f.leaseAttained:
@@ -206,6 +222,21 @@ func (f *FailoverManager) currentProcess() Monitorable {
 	}
 
 	return nil
+}
+
+// Shutdown shuts down the failover manager, killing the underlying
+// active process.
+func (f *FailoverManager) Shutdown(ctx context.Context) {
+	logrus.Infof("shutting down failover manager")
+
+	close(f.shutdown)
+	f.wg.Wait()
+
+	if currentProcess := f.currentProcess(); currentProcess != nil {
+		if err := currentProcess.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Errorf("error shutting down process")
+		}
+	}
 }
 
 // HandleFailure is called by an external process in order to restart

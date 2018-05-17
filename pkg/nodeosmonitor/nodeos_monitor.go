@@ -125,3 +125,8 @@ func (n *NodeosMonitor) Start(ctx context.Context) {
 		logrus.WithError(err).Errorf("error attempting initial activation")
 	}
 }
+
+// Shutdown shuts down the failover manager.
+func (n *NodeosMonitor) Shutdown(ctx context.Context) {
+	n.failover.Shutdown(ctx)
+}

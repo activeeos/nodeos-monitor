@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
 
 	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor"
 	"github.com/sirupsen/logrus"
@@ -17,13 +18,20 @@ var rootCmd = &cobra.Command{
 	Use:   "nodeos-monitor",
 	Short: "nodeos-monitor provides failover for EOS nodes",
 	Run: func(cmd *cobra.Command, args []string) {
+		shutdown := make(chan os.Signal, 1)
+		signal.Notify(shutdown, os.Interrupt, os.Kill, syscall.SIGTERM)
+
 		monitor, err := nodeosmonitor.NewNodeosMonitor(&config)
 		if err != nil {
 			logrus.WithError(err).Fatalf("error starting monitor")
 		}
 
-		monitor.Start(context.Background())
-		time.Sleep(time.Hour)
+		ctx := context.Background()
+		monitor.Start(ctx)
+
+		signal := <-shutdown
+		logrus.Debugf("received shutdown signal: %v", signal)
+		monitor.Shutdown(ctx)
 	},
 }
 
