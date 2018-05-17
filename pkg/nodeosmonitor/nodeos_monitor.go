@@ -10,6 +10,7 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Config are all of the different options available for use by a
@@ -115,4 +116,7 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 // asynchronously and immediately returns.
 func (n *NodeosMonitor) Start(ctx context.Context) {
 	n.failover.Start(ctx)
+	if err := n.failover.TryActivate(ctx); err != nil {
+		logrus.WithError(err).Errorf("error attempting initial activation")
+	}
 }

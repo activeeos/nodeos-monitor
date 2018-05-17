@@ -211,7 +211,7 @@ func (f *FailoverManager) HandleFailure(ctx context.Context) {
 }
 
 func (f *FailoverManager) handleActive(ctx context.Context) error {
-	logrus.Debugf("activating process")
+	logrus.Debugf("activating active process")
 
 	if f.currentState == failoverStateActive {
 		return errors.New("error: process already active")
@@ -227,13 +227,13 @@ func (f *FailoverManager) handleActive(ctx context.Context) error {
 		return errors.Wrapf(err, "error activating active process")
 	}
 
-	logrus.Infof("activated process")
+	logrus.Infof("activated active process")
 
 	return nil
 }
 
 func (f *FailoverManager) handleStandby(ctx context.Context) error {
-	logrus.Debugf("creating standby process")
+	logrus.Debugf("activating standby process")
 
 	if f.currentState == failoverStateStandby {
 		return errors.New("error: standby process already exists")
@@ -249,7 +249,7 @@ func (f *FailoverManager) handleStandby(ctx context.Context) error {
 		return errors.Wrapf(err, "error activating standyby process")
 	}
 
-	logrus.Infof("created standby process")
+	logrus.Infof("activated standby process")
 
 	return nil
 }
