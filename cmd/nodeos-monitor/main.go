@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor"
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,9 @@ var rootCmd = &cobra.Command{
 
 		signal := <-shutdown
 		logrus.Debugf("received shutdown signal: %v", signal)
+
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
 		monitor.Shutdown(ctx)
 	},
 }
