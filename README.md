@@ -57,7 +57,7 @@ In the future, Github releases will be created.
 `nodeos-monitor` is configured via command line flags:
 
 ```
-# nodeos-monitor -h
+$ nodeos-monitor -h
 
 nodeos-monitor provides failover for EOS nodes
 
@@ -96,3 +96,13 @@ A failover group is a unique descriptor for the block producer all
 nodes are vying to be. This is the key that's used in building the
 distributed lock on Etcd. All nodes must be configured with the
 identical `failover-group` setting.
+
+### Process Monitoring
+
+The `nodeos-monitor` process keep an instance of `nodeos` as a
+subprocess. However, it also needs monitoring in case it malfunctions
+with something like systemd, Docker, or Kubernetes. Currently, there's
+a docker-compose lab environment which should be useful for doing this
+configuration--please see `docker-compose.yaml` for details.
+
+More configuration examples should be coming soon!
