@@ -1,21 +1,27 @@
-version: '3.2'
+version: '3.5'
 services:
   nodeos-1:
     build: .
     links:
     - etcd
-    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379
+    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data'
     volumes:
       - ./testing/nodeos-active-configs:/etc/nodeos-active-configs
       - ./testing/nodeos-standby-configs:/etc/nodeos-standby-configs
+      - nodeos-1-data:/data
   nodeos-2:
     build: .
     links:
     - etcd
-    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379
+    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data'
     volumes:
       - ./testing/nodeos-active-configs:/etc/nodeos-active-configs
       - ./testing/nodeos-standby-configs:/etc/nodeos-standby-configs
+      - nodeos-2-data:/data
   etcd:
     image: quay.io/coreos/etcd:v3.3
     command: /usr/local/bin/etcd --listen-client-urls 'http://0.0.0.0:2379' --advertise-client-urls 'http://0.0.0.0:2379'
+
+volumes:
+  nodeos-1-data:
+  nodeos-2-data:
