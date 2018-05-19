@@ -27,14 +27,15 @@ var rootCmd = &cobra.Command{
 			logrus.WithError(err).Fatalf("error starting monitor")
 		}
 
-		ctx := context.Background()
+		ctx, monitorCancel := context.WithCancel(context.Background())
 		go monitor.Start(ctx)
 
 		signal := <-shutdown
 		logrus.Debugf("received shutdown signal: %v", signal)
 
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
+		monitorCancel()
+		ctx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer shutdownCancel()
 		monitor.Shutdown(ctx)
 	},
 }
