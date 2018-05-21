@@ -95,7 +95,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	logrus.Debugf("activating process %v", p.path)
+	logrus.Debugf("activating process %v with args: %v", p.path, p.args)
 
 	if p.cmd != nil {
 		return errors.New("error: process is already active")
