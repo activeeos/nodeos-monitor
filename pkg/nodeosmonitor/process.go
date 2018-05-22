@@ -57,7 +57,7 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			logrus.Infof("wrapped process stdout: %s", scanner.Text())
+			logrus.WithField("wrapped-process-stdout", scanner.Text()).Info()
 		}
 		if err := scanner.Err(); err != nil {
 			logrus.WithError(err).Errorf("error scanning stdout")
@@ -71,7 +71,7 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			logrus.Infof("wrapped process stderr: %s", scanner.Text())
+			logrus.WithField("wrapped-process-stderr", scanner.Text()).Info()
 		}
 		if err := scanner.Err(); err != nil {
 			logrus.WithError(err).Errorf("error scanning stderr")

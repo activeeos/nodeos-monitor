@@ -19,6 +19,18 @@ var rootCmd = &cobra.Command{
 	Use:   "nodeos-monitor",
 	Short: "nodeos-monitor provides failover for EOS nodes",
 	Run: func(cmd *cobra.Command, args []string) {
+		if config.DebugMode {
+			logrus.SetLevel(logrus.DebugLevel)
+		}
+
+		switch config.LogFormat {
+		case "text":
+		case "json":
+			logrus.SetFormatter(&logrus.JSONFormatter{})
+		default:
+			logrus.Fatalf("unsupported log format %s", config.LogFormat)
+		}
+
 		shutdown := make(chan os.Signal, 1)
 		signal.Notify(shutdown, os.Interrupt, os.Kill, syscall.SIGTERM)
 
@@ -60,6 +72,7 @@ func init() {
 	rootCmd.Flags().StringVar(&config.FailoverGroup, "failover-group", "eos",
 		"the identifier for the group of nodes involved in the failover process")
 	rootCmd.Flags().BoolVar(&config.DebugMode, "debug", false, "print debug logs")
+	rootCmd.Flags().StringVar(&config.LogFormat, "log-format", "text", "log format (one of 'text' or 'json')")
 }
 
 func main() {
