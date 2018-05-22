@@ -197,13 +197,15 @@ func (k *KeyChangeNotifier) Start(ctx context.Context) {
 	logrus.Info("starting Etcd key change notifier")
 
 	watchChan := k.watcherClient.Watch(ctx, k.key)
+
+Loop:
 	for {
 		var response clientv3.WatchResponse
 
 		select {
 		case r, ok := <-watchChan:
 			if !ok {
-				break
+				break Loop
 			}
 			response = r
 		case <-ctx.Done():
