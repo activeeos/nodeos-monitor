@@ -34,7 +34,6 @@ type EtcdLeaseManager struct {
 	firstLeaseChan     chan struct{}
 	firstLeaseAttained bool
 	wg                 *sync.WaitGroup
-	shutdown           chan struct{}
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
@@ -49,7 +48,6 @@ func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
 		lockTTLSeconds: lockTTLSeconds,
 		firstLeaseChan: firstLeaseChan,
 		wg:             wg,
-		shutdown:       make(chan struct{}),
 	}
 }
 
@@ -65,12 +63,17 @@ func (l *EtcdLeaseManager) RevokeCurrentLease(ctx context.Context) error {
 
 // Shutdown shuts down the lease manager, revoking all leases.
 func (l *EtcdLeaseManager) Shutdown(ctx context.Context) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	logrus.Infof("shutting down Etcd lease manager")
 
-	close(l.shutdown)
-	if err := l.RevokeCurrentLease(ctx); err != nil {
-		logrus.WithError(err).Errorf("error revoking lease while shutting down")
+	if l.id != 0 {
+		if err := l.RevokeCurrentLease(ctx); err != nil {
+			logrus.WithError(err).Errorf("error revoking lease while shutting down")
+		}
 	}
+
 	l.wg.Wait()
 }
 
@@ -83,8 +86,6 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		logrus.Debugf("trying to attain Etcd lease")
 
 		select {
-		case <-l.shutdown:
-			return
 		case <-ctx.Done():
 			return
 		default:
@@ -94,7 +95,11 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 		if err := l.attainLease(ctx); err != nil {
 			logrus.WithError(err).Errorf("error attaining lease")
-			l.clock.Sleep(leaseRecoveryDelay)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(leaseRecoveryDelay):
+			}
 			continue
 		}
 
@@ -108,12 +113,10 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 		// Only perform the delay if we're not shutting down.
 		select {
-		case <-l.shutdown:
+		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(leaseRecoveryDelay):
 		}
-
-		l.clock.Sleep(leaseRecoveryDelay)
 	}
 }
 
@@ -191,15 +194,20 @@ func NewKeyChangeNotifier(key string, watcherClient clientv3.Watcher,
 
 // Start begins the key change notification process.
 func (k *KeyChangeNotifier) Start(ctx context.Context) {
+	logrus.Info("starting Etcd key change notifier")
+
 	watchChan := k.watcherClient.Watch(ctx, k.key)
 	for {
-		response, ok := <-watchChan
-		if !ok {
-			break
-		}
+		var response clientv3.WatchResponse
 
 		select {
+		case r, ok := <-watchChan:
+			if !ok {
+				break
+			}
+			response = r
 		case <-ctx.Done():
+			logrus.Info("stopped Etcd key change notifier")
 			return
 		default:
 		}

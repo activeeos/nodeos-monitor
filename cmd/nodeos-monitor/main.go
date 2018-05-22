@@ -40,11 +40,12 @@ var rootCmd = &cobra.Command{
 		}
 
 		ctx, monitorCancel := context.WithCancel(context.Background())
-		defer monitorCancel()
 		go monitor.Start(ctx)
 
 		signal := <-shutdown
 		logrus.Debugf("received shutdown signal: %v", signal)
+
+		monitorCancel()
 
 		ctx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer shutdownCancel()
