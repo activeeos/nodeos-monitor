@@ -80,6 +80,8 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 	logrus.Info("starting lease manager")
 
 	for {
+		logrus.Debugf("trying to attain Etcd lease")
+
 		select {
 		case <-l.shutdown:
 			return
@@ -105,9 +107,13 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		logrus.Warn("lost Etcd lease")
 
 		// Only perform the delay if we're not shutting down.
-		if _, ok := <-l.shutdown; ok {
-			l.clock.Sleep(leaseRecoveryDelay)
+		select {
+		case <-l.shutdown:
+			return
+		default:
 		}
+
+		l.clock.Sleep(leaseRecoveryDelay)
 	}
 }
 
