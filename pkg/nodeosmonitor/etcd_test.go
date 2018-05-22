@@ -53,6 +53,8 @@ func TestKeyChangeNotifier(t *testing.T) {
 	defer cancel()
 	go notifier.Start(ctx)
 
+	time.Sleep(time.Second)
+
 	client.KV.Put(ctx, key, "1")
 	<-change
 

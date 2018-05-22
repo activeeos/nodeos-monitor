@@ -2,6 +2,7 @@ package nodeosmonitor
 
 import (
 	"context"
+	"io"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -55,14 +56,17 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 		return errors.Wrapf(err, "error opening stdout pipe")
 	}
 	go func() {
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 64*1024)
-		scanner.Buffer(buf, 64*1024)
-		for scanner.Scan() {
-			logrus.WithField("wrapped-process-stdout", scanner.Text()).Info()
-		}
-		if err := scanner.Err(); err != nil {
-			logrus.WithError(err).Errorf("error scanning stdout")
+		reader := bufio.NewReaderSize(stdout, 64*1024)
+		for {
+			line, _, err := reader.ReadLine()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				logrus.WithError(err).Errorf("error reading stdout")
+				return
+			}
+			logrus.WithField("wrapped-process-stdout", string(line)).Info()
 		}
 	}()
 
@@ -71,14 +75,17 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 		return errors.Wrapf(err, "error opening stdout pipe")
 	}
 	go func() {
-		scanner := bufio.NewScanner(stderr)
-		buf := make([]byte, 64*1024)
-		scanner.Buffer(buf, 64*1024)
-		for scanner.Scan() {
-			logrus.WithField("wrapped-process-stderr", scanner.Text()).Info()
-		}
-		if err := scanner.Err(); err != nil {
-			logrus.WithError(err).Errorf("error scanning stderr")
+		reader := bufio.NewReaderSize(stderr, 64*1024)
+		for {
+			line, _, err := reader.ReadLine()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				logrus.WithError(err).Errorf("error reading stderr")
+				return
+			}
+			logrus.WithField("wrapped-process-stderr", string(line)).Info()
 		}
 	}()
 
