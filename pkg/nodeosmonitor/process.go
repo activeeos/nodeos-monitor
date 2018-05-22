@@ -120,11 +120,11 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	// goroutine.
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			// We only care if the process didn't exit.
-			if cmd.ProcessState == nil {
-				logrus.WithError(err).Errorf("error waiting for command to finish executing")
-			}
+			logrus.WithError(err).Errorf("error waiting for command to finish executing")
 		}
+
+		// TODO: do something if the cmd doesn't exit.
+
 		close(p.exited)
 	}()
 
