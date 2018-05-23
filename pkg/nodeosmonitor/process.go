@@ -112,7 +112,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 		return errors.New("error: process is already active")
 	}
 
-	cmd := exec.CommandContext(ctx, p.path, p.args...)
+	cmd := exec.Command(p.path, p.args...)
 
 	// Print all stdin/stderr output to the logrus logger.
 	if err := manageWrappedProcessOut(cmd); err != nil {
