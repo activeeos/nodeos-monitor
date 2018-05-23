@@ -37,7 +37,7 @@ type ProcessMonitor struct {
 	path     string
 	args     []string
 	cmd      *exec.Cmd
-	shutdown bool
+	shutdown chan struct{}
 	exited   chan struct{}
 	active   bool
 }
@@ -101,6 +101,38 @@ func (p *ProcessMonitor) IsActive() bool {
 	return p.active
 }
 
+func (p *ProcessMonitor) waitForProcessExit() {
+	if err := p.cmd.Wait(); err != nil {
+		logrus.WithError(err).Errorf("error waiting for command to finish executing")
+		// TODO: do something if the cmd doesn't exit.
+	}
+
+	close(p.exited)
+}
+
+func (p *ProcessMonitor) handleProcessExit(ctx context.Context, failureHandler ProcessFailureHandler) {
+	select {
+	case <-p.shutdown:
+		return
+	case <-ctx.Done():
+		return
+	case <-p.exited:
+	}
+
+	logrus.Debugf("detected process failure %v", p.path)
+
+	p.mutex.Lock()
+	p.active = false
+	p.mutex.Unlock()
+
+	// Cleanup after the process if this is a random failure.
+	if err := p.Shutdown(ctx); err != nil {
+		logrus.WithError(err).Errorf("error shutting down process")
+	}
+
+	failureHandler.HandleFailure(ctx, p)
+}
+
 // Activate starts the underlying process.
 func (p *ProcessMonitor) Activate(ctx context.Context,
 	failureHandler ProcessFailureHandler) error {
@@ -115,59 +147,21 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 
 	cmd := exec.Command(p.path, p.args...)
 
-	// Print all stdin/stderr output to the logrus logger.
 	if err := manageWrappedProcessOut(cmd); err != nil {
 		return errors.Wrapf(err, "error managing wrapped process output")
 	}
 
-	// Start the command
 	if err := cmd.Start(); err != nil {
 		return errors.Wrapf(err, "error starting command")
 	}
+
 	p.cmd = cmd
-	p.shutdown = false
+	p.shutdown = make(chan struct{})
 	p.exited = make(chan struct{})
 	p.active = true
 
-	// Create exited channel so that we can wait for this in next
-	// goroutine.
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			logrus.WithError(err).Errorf("error waiting for command to finish executing")
-		}
-
-		// TODO: do something if the cmd doesn't exit.
-
-		close(p.exited)
-	}()
-
-	// This goroutine waits until the process fails, notifying the
-	// failure handler.
-	go func() {
-		select {
-		case <-p.exited:
-		case <-ctx.Done():
-			return
-		}
-
-		logrus.Debugf("detected process failure %v", p.path)
-
-		p.mutex.Lock()
-		p.active = false
-
-		// Check that this is a random failure, not a shutdown.
-		if p.shutdown {
-			return
-		}
-		p.mutex.Unlock()
-
-		failureHandler.HandleFailure(ctx, p)
-
-		// Cleanup after the process if this is a random failure.
-		if err := p.Shutdown(ctx); err != nil {
-			logrus.WithError(err).Errorf("error shutting down process")
-		}
-	}()
+	go p.waitForProcessExit()
+	go p.handleProcessExit(ctx, failureHandler)
 
 	return nil
 }
@@ -179,12 +173,11 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 
 	logrus.Debugf("shutting down process %v", p.path)
 
-	// This is to let goroutines know that this isn't a random
-	// failure.
-	p.shutdown = true
-	p.active = false
+	if p.cmd == nil {
+		return nil
+	}
 
-	if p.cmd != nil && p.cmd.ProcessState == nil {
+	if p.cmd.ProcessState == nil {
 		logrus.Debugf("sending SIGTERM to process %v", p.path)
 
 		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -199,6 +192,8 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 		logrus.Debugf("killed process %v", p.path)
 	}
 
+	close(p.shutdown)
+	p.active = false
 	p.cmd = nil
 
 	logrus.Debugf("shut down process %v", p.path)
