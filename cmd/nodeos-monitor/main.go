@@ -52,7 +52,12 @@ var rootCmd = &cobra.Command{
 		ctx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer shutdownCancel()
 
-		// This will cancel all hanging Etcd requests.
+		// This will cancel all hanging Etcd requests. This is needed
+		// because all requests need to finish for monitor.Shutdown to
+		// finish. The requests only tend to hang when Etcd isn't
+		// up. We don't have to execute monitorCancel immediately if
+		// the system is functioning correctly because requests will
+		// return quickly.
 		go func() {
 			time.Sleep(10 * time.Second)
 			monitorCancel()
