@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func failoverManager(t *testing.T) (*nodeosmonitor.FailoverConfig,
+func failoverManager(ctx context.Context, t *testing.T) (*nodeosmonitor.FailoverConfig,
 	*nodeosmonitor.FailoverManager) {
 	clock := fakeclock.NewFakeClock(time.Now())
 	client := nodeosmonitor.GetEtcdClient(t)
@@ -19,26 +19,28 @@ func failoverManager(t *testing.T) (*nodeosmonitor.FailoverConfig,
 	key := uuid.New().String()
 	activeProcess := &mockMonitorable{}
 	standbyProcess := &mockMonitorable{}
+	leaseManager := nodeosmonitor.NewEtcdLeaseManager(clock, client.Lease)
+	go leaseManager.Start(ctx)
 
 	conf := &nodeosmonitor.FailoverConfig{
 		ID:             id,
 		EtcdKey:        key,
 		Clock:          clock,
-		LeaseClient:    client.Lease,
 		WatcherClient:  client.Watcher,
 		KVClient:       client.KV,
 		ActiveProcess:  activeProcess,
 		StandbyProcess: standbyProcess,
+		LeaseManager:   leaseManager,
 	}
 
 	return conf, nodeosmonitor.NewFailoverManager(conf)
 }
 
 func TestFailoverManagerActivateImmediatelySuccess(t *testing.T) {
-	conf, failoverManager := failoverManager(t)
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
+
+	conf, failoverManager := failoverManager(ctx, t)
 
 	failoverManager.Start(ctx)
 	if err := failoverManager.TryActivate(ctx); err != nil {
@@ -51,14 +53,14 @@ func TestFailoverManagerActivateImmediatelySuccess(t *testing.T) {
 }
 
 func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
-	conf, failoverManager := failoverManager(t)
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
+	conf, failoverManager := failoverManager(ctx, t)
+
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := conf.LeaseClient.Grant(ctx, 100)
+	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +80,10 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 }
 
 func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
-	conf, failoverManager := failoverManager(t)
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
+
+	conf, failoverManager := failoverManager(ctx, t)
 
 	// TODO: figure out how to remove time dependency from here, maybe
 	// by watching the Etcd key.
@@ -99,14 +101,14 @@ func TestFailoverManagerActivatePeriodicallySuccess(t *testing.T) {
 }
 
 func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
-	conf, failoverManager := failoverManager(t)
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
+	conf, failoverManager := failoverManager(ctx, t)
+
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := conf.LeaseClient.Grant(ctx, 100)
+	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +133,14 @@ func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
 }
 
 func TestFailoverManagerFromChanSuccess(t *testing.T) {
-	conf, failoverManager := failoverManager(t)
-
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
+	conf, failoverManager := failoverManager(ctx, t)
+
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := conf.LeaseClient.Grant(ctx, 100)
+	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

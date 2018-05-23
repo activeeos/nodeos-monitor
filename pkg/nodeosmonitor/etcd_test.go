@@ -23,7 +23,7 @@ func GetEtcdClient(t *testing.T) *clientv3.Client {
 
 func TestEtcdLeaseManager(t *testing.T) {
 	manager := NewEtcdLeaseManager(
-		clock.NewClock(), 10, GetEtcdClient(t).Lease, nil)
+		clock.NewClock(), GetEtcdClient(t).Lease)
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
@@ -72,21 +72,19 @@ func TestEtcdMutex(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
-	manager1NewLease := make(chan struct{})
 	manager1 := NewEtcdLeaseManager(
-		clock.NewClock(), 10, GetEtcdClient(t).Lease, manager1NewLease)
+		clock.NewClock(), GetEtcdClient(t).Lease)
 	go manager1.Start(ctx)
 
-	manager2NewLease := make(chan struct{})
 	manager2 := NewEtcdLeaseManager(
-		clock.NewClock(), 10, GetEtcdClient(t).Lease, manager2NewLease)
+		clock.NewClock(), GetEtcdClient(t).Lease)
 	go manager2.Start(ctx)
+
+	<-manager1.AfterLease(ctx)
+	<-manager2.AfterLease(ctx)
 
 	mutex1 := NewEtcdMutex("1", key, client.KV, manager1)
 	mutex2 := NewEtcdMutex("2", key, client.KV, manager2)
-
-	<-manager1NewLease
-	<-manager2NewLease
 
 	t.Run("first lock", func(t *testing.T) {
 		locked, err := mutex1.Lock(ctx)

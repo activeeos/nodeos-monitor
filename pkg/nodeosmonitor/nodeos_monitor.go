@@ -74,8 +74,9 @@ func getEtcdClient(conf *Config) (*clientv3.Client, error) {
 // NodeosMonitor contains the services needed to run an EOS Nodeos
 // Process monitor.
 type NodeosMonitor struct {
-	config   *Config
-	failover *FailoverManager
+	config       *Config
+	failover     *FailoverManager
+	leaseManager *EtcdLeaseManager
 }
 
 // NewNodeosMonitor creates a new NodeosMonitor instance.
@@ -97,27 +98,32 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 	)
 	standbyProcess := NewProcessMonitor(conf.NodeosPath, standbyArgs)
 
+	leaseManager := NewEtcdLeaseManager(clock.NewClock(), etcd.Lease)
+
 	failoverConfig := &FailoverConfig{
 		ID:             uuid.New().String(),
 		EtcdKey:        conf.FailoverGroup,
 		Clock:          clock.NewClock(),
-		LeaseClient:    etcd.Lease,
 		WatcherClient:  etcd.Watcher,
 		KVClient:       etcd.KV,
 		ActiveProcess:  activeProcess,
 		StandbyProcess: standbyProcess,
+		LeaseManager:   leaseManager,
 	}
 
 	return &NodeosMonitor{
-		config:   conf,
-		failover: NewFailoverManager(failoverConfig),
+		config:       conf,
+		failover:     NewFailoverManager(failoverConfig),
+		leaseManager: leaseManager,
 	}, nil
 }
 
 // Start begins the Nodeos monitoring process. Start runs
 // asynchronously and immediately returns.
 func (n *NodeosMonitor) Start(ctx context.Context) {
+	n.leaseManager.Start(ctx)
 	n.failover.Start(ctx)
+
 	if err := n.failover.TryActivate(ctx); err != nil {
 		logrus.WithError(err).Errorf("error attempting initial activation")
 	}
@@ -125,6 +131,7 @@ func (n *NodeosMonitor) Start(ctx context.Context) {
 
 // Shutdown shuts down the failover manager.
 func (n *NodeosMonitor) Shutdown(ctx context.Context) {
+	n.leaseManager.Shutdown(ctx)
 	n.failover.Shutdown(ctx)
 	logrus.Infof("all processes have been shut down")
 }

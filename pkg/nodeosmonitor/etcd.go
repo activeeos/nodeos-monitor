@@ -26,34 +26,40 @@ var (
 // EtcdLeaseManager always maintains an Etcd lease, notifying through a
 // channel when the current lease is lost.
 type EtcdLeaseManager struct {
-	mutex              *sync.Mutex
-	lockTTLSeconds     int64
-	clock              clock.Clock
-	leaseClient        clientv3.Lease
-	id                 clientv3.LeaseID
-	firstLeaseChan     chan struct{}
-	firstLeaseAttained bool
-	wg                 *sync.WaitGroup
+	mutex       *sync.Mutex
+	clock       clock.Clock
+	leaseClient clientv3.Lease
+	id          clientv3.LeaseID
+	wg          *sync.WaitGroup
+	gotLease    chan struct{}
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
-func NewEtcdLeaseManager(clock clock.Clock, lockTTLSeconds int64,
-	leaseClient clientv3.Lease, firstLeaseChan chan struct{}) *EtcdLeaseManager {
+func NewEtcdLeaseManager(clock clock.Clock, leaseClient clientv3.Lease) *EtcdLeaseManager {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	return &EtcdLeaseManager{
-		mutex:          &sync.Mutex{},
-		clock:          clock,
-		leaseClient:    leaseClient,
-		lockTTLSeconds: lockTTLSeconds,
-		firstLeaseChan: firstLeaseChan,
-		wg:             wg,
+		mutex:       &sync.Mutex{},
+		clock:       clock,
+		leaseClient: leaseClient,
+		wg:          wg,
+		gotLease:    make(chan struct{}),
 	}
+}
+
+// AfterLease returns a channel that's closed when a lease has been
+// attained.
+func (l *EtcdLeaseManager) AfterLease(ctx context.Context) chan struct{} {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.gotLease
 }
 
 // RevokeCurrentLease revokes the current lease. This makes it so that
 // the LeaseManager requests a new lease.
 func (l *EtcdLeaseManager) RevokeCurrentLease(ctx context.Context) error {
+	logrus.Infof("Revoking Etcd lease")
+
 	if _, err := l.leaseClient.Revoke(ctx, l.id); err != nil {
 		return errors.Wrapf(err, "error revoking current lease")
 	}
@@ -104,12 +110,17 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		}
 
 		logrus.Infof("attained Etcd lease: %d", l.id)
+		close(l.gotLease)
 
 		if err := l.manageKeepAlive(ctx); err != nil {
 			logrus.WithError(err).Errorf("error managing lease keep-alive")
 		}
 
 		logrus.Warn("lost Etcd lease")
+
+		l.mutex.Lock()
+		l.gotLease = make(chan struct{})
+		l.mutex.Unlock()
 
 		// Only perform the delay if we're not shutting down.
 		select {
@@ -136,17 +147,12 @@ func (l *EtcdLeaseManager) attainLease(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	response, err := l.leaseClient.Grant(ctx, l.lockTTLSeconds)
+	response, err := l.leaseClient.Grant(ctx, defaultLeaseTTLSeconds)
 	if err != nil {
 		return errors.Wrapf(err, "error granting lease")
 	}
 
 	l.id = response.ID
-
-	if !l.firstLeaseAttained && l.firstLeaseChan != nil {
-		l.firstLeaseChan <- struct{}{}
-		l.firstLeaseAttained = true
-	}
 
 	return nil
 }

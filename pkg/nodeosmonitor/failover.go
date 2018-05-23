@@ -17,6 +17,8 @@ const (
 	failoverStateActive  = 1
 	failoverStateStandby = 2
 
+	tryActivateTimeout = 10 * time.Second
+
 	periodicActivationInterval = 5 * time.Second
 )
 
@@ -37,15 +39,14 @@ type FailoverManager struct {
 	kvClient       clientv3.KV
 	activeProcess  Monitorable
 	standbyProcess Monitorable
+	leaseManager   *EtcdLeaseManager
 
 	// Internal fields
-	currentState  int
-	leaseManager  *EtcdLeaseManager
-	etcdMutex     *EtcdMutex
-	notifier      *KeyChangeNotifier
-	leaseAttained chan struct{}
-	shutdown      chan struct{}
-	wg            *sync.WaitGroup
+	currentState int
+	etcdMutex    *EtcdMutex
+	notifier     *KeyChangeNotifier
+	shutdown     chan struct{}
+	wg           *sync.WaitGroup
 }
 
 // FailoverConfig contains the parameters for a FailoverManager.
@@ -53,7 +54,7 @@ type FailoverConfig struct {
 	ID             string
 	EtcdKey        string
 	Clock          clock.Clock
-	LeaseClient    clientv3.Lease
+	LeaseManager   *EtcdLeaseManager
 	WatcherClient  clientv3.Watcher
 	KVClient       clientv3.KV
 	ActiveProcess  Monitorable
@@ -67,12 +68,11 @@ func NewFailoverManager(config *FailoverConfig) *FailoverManager {
 		id:             config.ID,
 		key:            config.EtcdKey,
 		clock:          config.Clock,
-		leaseClient:    config.LeaseClient,
+		leaseManager:   config.LeaseManager,
 		watcherClient:  config.WatcherClient,
 		kvClient:       config.KVClient,
 		activeProcess:  config.ActiveProcess,
 		standbyProcess: config.StandbyProcess,
-		leaseAttained:  make(chan struct{}, 1),
 		shutdown:       make(chan struct{}),
 		wg:             &sync.WaitGroup{},
 	}
@@ -82,10 +82,6 @@ func NewFailoverManager(config *FailoverConfig) *FailoverManager {
 // asynchronously until the context is canceled.
 func (f *FailoverManager) Start(ctx context.Context) {
 	logrus.Infof("starting failover manager")
-
-	f.leaseManager = NewEtcdLeaseManager(f.clock,
-		defaultLeaseTTLSeconds, f.leaseClient, f.leaseAttained)
-	go f.leaseManager.Start(ctx)
 
 	f.etcdMutex = NewEtcdMutex(f.id, f.key, f.kvClient, f.leaseManager)
 
@@ -149,11 +145,11 @@ func (f *FailoverManager) tryActivateFromChan(ctx context.Context, c chan *mvccp
 // attained.
 func (f *FailoverManager) TryActivate(ctx context.Context) error {
 	select {
-	case <-f.shutdown:
-		return nil
 	case <-ctx.Done():
 		return nil
-	case <-f.leaseAttained:
+	case <-f.clock.After(tryActivateTimeout):
+		return nil
+	case <-f.leaseManager.AfterLease(ctx):
 	}
 
 	if err := f.tryActivate(ctx); err != nil {
@@ -246,8 +242,6 @@ func (f *FailoverManager) Shutdown(ctx context.Context) {
 			logrus.WithError(err).Errorf("error shutting down process")
 		}
 	}
-
-	f.leaseManager.Shutdown(ctx)
 }
 
 // HandleFailure is called by an external process in order to restart
