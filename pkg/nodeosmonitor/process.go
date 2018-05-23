@@ -39,6 +39,7 @@ type ProcessMonitor struct {
 	cmd      *exec.Cmd
 	shutdown bool
 	exited   chan struct{}
+	active   bool
 }
 
 // NewProcessMonitor returns a new instance of ProcessMonitor.
@@ -97,7 +98,7 @@ func (p *ProcessMonitor) IsActive() bool {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	return p.cmd != nil
+	return p.active
 }
 
 // Activate starts the underlying process.
@@ -126,6 +127,7 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 	p.cmd = cmd
 	p.shutdown = false
 	p.exited = make(chan struct{})
+	p.active = true
 
 	// Create exited channel so that we can wait for this in next
 	// goroutine.
@@ -150,8 +152,10 @@ func (p *ProcessMonitor) Activate(ctx context.Context,
 
 		logrus.Debugf("detected process failure %v", p.path)
 
-		// Check that this is a random failure, not a shutdown.
 		p.mutex.Lock()
+		p.active = false
+
+		// Check that this is a random failure, not a shutdown.
 		if p.shutdown {
 			return
 		}
@@ -178,6 +182,7 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	// This is to let goroutines know that this isn't a random
 	// failure.
 	p.shutdown = true
+	p.active = false
 
 	if p.cmd != nil && p.cmd.ProcessState == nil {
 		logrus.Debugf("sending SIGTERM to process %v", p.path)
