@@ -31,6 +31,8 @@ var rootCmd = &cobra.Command{
 			logrus.Fatalf("unsupported log format %s", config.LogFormat)
 		}
 
+		ctx := context.Background()
+
 		shutdown := make(chan os.Signal, 1)
 		signal.Notify(shutdown, os.Interrupt, os.Kill, syscall.SIGTERM)
 
@@ -39,16 +41,23 @@ var rootCmd = &cobra.Command{
 			logrus.WithError(err).Fatalf("error starting monitor")
 		}
 
-		ctx, monitorCancel := context.WithCancel(context.Background())
+		ctx, monitorCancel := context.WithCancel(ctx)
+		defer monitorCancel()
+
 		go monitor.Start(ctx)
 
 		signal := <-shutdown
 		logrus.Debugf("received shutdown signal: %v", signal)
 
-		monitorCancel()
-
 		ctx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer shutdownCancel()
+
+		// This will cancel all hanging Etcd requests.
+		go func() {
+			time.Sleep(10 * time.Second)
+			monitorCancel()
+		}()
+
 		monitor.Shutdown(ctx)
 	},
 }

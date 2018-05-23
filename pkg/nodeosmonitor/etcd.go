@@ -32,6 +32,7 @@ type EtcdLeaseManager struct {
 	id          clientv3.LeaseID
 	wg          *sync.WaitGroup
 	gotLease    chan struct{}
+	shutdown    chan struct{}
 }
 
 // NewEtcdLeaseManager instantiates a new EtcdLeaseManager.
@@ -44,6 +45,7 @@ func NewEtcdLeaseManager(clock clock.Clock, leaseClient clientv3.Lease) *EtcdLea
 		leaseClient: leaseClient,
 		wg:          wg,
 		gotLease:    make(chan struct{}),
+		shutdown:    make(chan struct{}),
 	}
 }
 
@@ -58,21 +60,22 @@ func (l *EtcdLeaseManager) AfterLease(ctx context.Context) chan struct{} {
 // RevokeCurrentLease revokes the current lease. This makes it so that
 // the LeaseManager requests a new lease.
 func (l *EtcdLeaseManager) RevokeCurrentLease(ctx context.Context) error {
-	logrus.Infof("Revoking Etcd lease")
+	logrus.Infof("revoking Etcd lease")
 
 	if _, err := l.leaseClient.Revoke(ctx, l.id); err != nil {
 		return errors.Wrapf(err, "error revoking current lease")
 	}
+
+	l.id = 0
 
 	return nil
 }
 
 // Shutdown shuts down the lease manager, revoking all leases.
 func (l *EtcdLeaseManager) Shutdown(ctx context.Context) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
 	logrus.Infof("shutting down Etcd lease manager")
+
+	close(l.shutdown)
 
 	if l.id != 0 {
 		if err := l.RevokeCurrentLease(ctx); err != nil {
@@ -81,6 +84,8 @@ func (l *EtcdLeaseManager) Shutdown(ctx context.Context) {
 	}
 
 	l.wg.Wait()
+
+	logrus.Debug("finished shutting down Etcd lease manager")
 }
 
 // Start begins the process of attaining and renewing leases.
@@ -94,6 +99,8 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-l.shutdown:
+			return
 		default:
 		}
 
@@ -103,6 +110,8 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 			logrus.WithError(err).Errorf("error attaining lease")
 			select {
 			case <-ctx.Done():
+				return
+			case <-l.shutdown:
 				return
 			case <-time.After(leaseRecoveryDelay):
 			}
@@ -122,9 +131,10 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 		l.gotLease = make(chan struct{})
 		l.mutex.Unlock()
 
-		// Only perform the delay if we're not shutting down.
 		select {
 		case <-ctx.Done():
+			return
+		case <-l.shutdown:
 			return
 		case <-time.After(leaseRecoveryDelay):
 		}
@@ -163,10 +173,17 @@ func (l *EtcdLeaseManager) manageKeepAlive(ctx context.Context) error {
 		return errors.Wrapf(err, "error starting lease keep alive goroutine")
 	}
 
+Loop:
 	for {
-		_, ok := <-keepAlive
-		if !ok {
-			break
+		select {
+		case _, ok := <-keepAlive:
+			if !ok {
+				break Loop
+			}
+		case <-ctx.Done():
+			return nil
+		case <-l.shutdown:
+			return nil
 		}
 
 		logrus.Debug("received Etcd lease keep-alive message")

@@ -121,8 +121,8 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 // Start begins the Nodeos monitoring process. Start runs
 // asynchronously and immediately returns.
 func (n *NodeosMonitor) Start(ctx context.Context) {
-	n.leaseManager.Start(ctx)
-	n.failover.Start(ctx)
+	go n.leaseManager.Start(ctx)
+	go n.failover.Start(ctx)
 
 	if err := n.failover.TryActivate(ctx); err != nil {
 		logrus.WithError(err).Errorf("error attempting initial activation")

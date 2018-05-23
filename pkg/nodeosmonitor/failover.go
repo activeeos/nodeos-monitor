@@ -144,7 +144,11 @@ func (f *FailoverManager) tryActivateFromChan(ctx context.Context, c chan *mvccp
 // TryActivate forces an activation, waiting for a least to be
 // attained.
 func (f *FailoverManager) TryActivate(ctx context.Context) error {
+	logrus.Infof("trying immediate activation")
+
 	select {
+	case <-f.shutdown:
+		return nil
 	case <-ctx.Done():
 		return nil
 	case <-f.clock.After(tryActivateTimeout):
@@ -242,6 +246,8 @@ func (f *FailoverManager) Shutdown(ctx context.Context) {
 			logrus.WithError(err).Errorf("error shutting down process")
 		}
 	}
+
+	logrus.Debug("finished shutting down failover manager")
 }
 
 // HandleFailure is called by an external process in order to restart
