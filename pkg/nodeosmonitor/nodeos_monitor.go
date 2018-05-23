@@ -153,8 +153,8 @@ func (n *NodeosMonitor) Start(ctx context.Context) {
 
 // Shutdown shuts down the failover manager.
 func (n *NodeosMonitor) Shutdown(ctx context.Context) {
-	n.leaseManager.Shutdown(ctx)
 	n.failover.Shutdown(ctx)
+	n.leaseManager.Shutdown(ctx)
 	n.httpServer.Close()
 	logrus.Infof("all processes have been shut down")
 }
