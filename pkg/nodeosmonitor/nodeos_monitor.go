@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io/ioutil"
+	"net"
+	"net/http"
 
 	"code.cloudfoundry.org/clock"
 	"github.com/coreos/etcd/clientv3"
@@ -27,6 +29,7 @@ type Config struct {
 	EtcdKeyPath      string
 	EtcdCAPath       string
 	FailoverGroup    string
+	ActiveCheckAddr  string
 }
 
 func getEtcdClient(conf *Config) (*clientv3.Client, error) {
@@ -77,6 +80,8 @@ type NodeosMonitor struct {
 	config       *Config
 	failover     *FailoverManager
 	leaseManager *EtcdLeaseManager
+	listener     net.Listener
+	httpServer   *http.Server
 }
 
 // NewNodeosMonitor creates a new NodeosMonitor instance.
@@ -111,10 +116,21 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 		LeaseManager:   leaseManager,
 	}
 
+	activeCheck := NewActiveCheckServer(activeProcess)
+
+	listener, err := net.Listen("tcp", conf.ActiveCheckAddr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating active check listener")
+	}
+
+	httpServer := &http.Server{Handler: activeCheck}
+
 	return &NodeosMonitor{
 		config:       conf,
 		failover:     NewFailoverManager(failoverConfig),
 		leaseManager: leaseManager,
+		listener:     listener,
+		httpServer:   httpServer,
 	}, nil
 }
 
@@ -123,6 +139,12 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 func (n *NodeosMonitor) Start(ctx context.Context) {
 	go n.leaseManager.Start(ctx)
 	go n.failover.Start(ctx)
+
+	go func() {
+		if err := n.httpServer.Serve(n.listener); err != nil {
+			logrus.WithError(err).Errorf("error serving HTTP server")
+		}
+	}()
 
 	if err := n.failover.TryActivate(ctx); err != nil {
 		logrus.WithError(err).Errorf("error attempting initial activation")
@@ -133,5 +155,6 @@ func (n *NodeosMonitor) Start(ctx context.Context) {
 func (n *NodeosMonitor) Shutdown(ctx context.Context) {
 	n.leaseManager.Shutdown(ctx)
 	n.failover.Shutdown(ctx)
+	n.httpServer.Close()
 	logrus.Infof("all processes have been shut down")
 }
