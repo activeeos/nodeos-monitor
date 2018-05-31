@@ -59,7 +59,7 @@ var rootCmd = &cobra.Command{
 		// the system is functioning correctly because requests will
 		// return quickly.
 		go func() {
-			time.Sleep(10 * time.Second)
+			time.Sleep(5 * time.Second)
 			monitorCancel()
 		}()
 
