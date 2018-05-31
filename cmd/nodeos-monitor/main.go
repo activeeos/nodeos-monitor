@@ -88,8 +88,8 @@ func init() {
 		"the identifier for the group of nodes involved in the failover process")
 	rootCmd.Flags().BoolVar(&config.DebugMode, "debug", false, "print debug logs")
 	rootCmd.Flags().StringVar(&config.LogFormat, "log-format", "text", "log format (one of 'text' or 'json')")
-	rootCmd.Flags().StringVar(&config.ActiveCheckAddr, "active-check-addr", "0.0.0.0:3000",
-		"where to expose the HTTP check for an active process")
+	rootCmd.Flags().StringVar(&config.MetricsHTTPAddr, "metrics-addr", ":3000",
+		"where to expose the HTTP Prometheus metrics")
 }
 
 func main() {

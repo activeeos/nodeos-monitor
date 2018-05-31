@@ -54,11 +54,7 @@ In the future, Github releases will be created.
 
 ### Configuration
 
-`nodeos-monitor` is configured via command line flags:
-
 ```
-$ nodeos-monitor -h
-
 nodeos-monitor provides failover for EOS nodes
 
 Usage:
@@ -73,9 +69,14 @@ Flags:
       --etcd-key string              the Etcd client key
       --failover-group string        the identifier for the group of nodes involved in the failover process (default "eos")
   -h, --help                         help for nodeos-monitor
+      --log-format string            log format (one of 'text' or 'json') (default "text")
+      --metrics-addr string          where to expose the HTTP Prometheus metrics (default ":3000")
       --nodeos string                the path to the nodeos binary (default "/opt/eosio/bin/nodeos")
       --nodeos-args stringArray      additional arguments to pass to nodeos
       --standby-config-dir string    the directory containing the configs for a standby nodeos process (default "/etc/nodeos-standby-configs/")
+
+
+nodeos-monitor` is configured via command line flags:
 ```
 
 Here are the most useful options:

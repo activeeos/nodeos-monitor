@@ -12,6 +12,7 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,7 +30,7 @@ type Config struct {
 	EtcdKeyPath      string
 	EtcdCAPath       string
 	FailoverGroup    string
-	ActiveCheckAddr  string
+	MetricsHTTPAddr  string
 }
 
 func getEtcdClient(conf *Config) (*clientv3.Client, error) {
@@ -116,14 +117,14 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 		LeaseManager:   leaseManager,
 	}
 
-	activeCheck := NewActiveCheckServer(activeProcess)
-
-	listener, err := net.Listen("tcp", conf.ActiveCheckAddr)
+	listener, err := net.Listen("tcp", conf.MetricsHTTPAddr)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error creating active check listener")
 	}
 
-	httpServer := &http.Server{Handler: activeCheck}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	httpServer := &http.Server{Handler: mux}
 
 	return &NodeosMonitor{
 		config:       conf,

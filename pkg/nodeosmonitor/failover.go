@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	failoverStateActive  = 1
-	failoverStateStandby = 2
+	failoverStateShutdown = 0
+	failoverStateActive   = 1
+	failoverStateStandby  = 2
 
 	tryActivateTimeout = 10 * time.Second
 
@@ -96,6 +97,20 @@ func (f *FailoverManager) Start(ctx context.Context) {
 	go f.tryActivatePeriodically(ctx)
 
 	logrus.Debugf("started failover manager")
+}
+
+func stateStr(state int) string {
+	switch state {
+	case failoverStateShutdown:
+		return "shutdown"
+	case failoverStateActive:
+		return "active"
+	case failoverStateStandby:
+		return "standby"
+	default:
+	}
+
+	return "unknown"
 }
 
 func (f *FailoverManager) tryActivatePeriodically(ctx context.Context) {
@@ -215,7 +230,7 @@ func (f *FailoverManager) shutdownProcesses(ctx context.Context) error {
 		return errors.Wrapf(err, "error shutting down underlying process")
 	}
 
-	f.currentState = 0
+	f.currentState = failoverStateShutdown
 
 	logrus.Debugf("shut down existing processes")
 
@@ -256,6 +271,8 @@ func (f *FailoverManager) HandleFailure(ctx context.Context, m Monitorable) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
+	metrics.ProcessFailures.Inc()
+
 	if m != f.currentProcess() {
 		return
 	}
@@ -280,17 +297,25 @@ func (f *FailoverManager) handleActive(ctx context.Context) error {
 		return errors.New("error: process already active")
 	}
 
+	metrics.ActivationAttempts.Inc()
+	metrics.ActiveProcesses.Set(1)
+	metrics.StandbyProcesses.Set(0)
+
 	if err := f.shutdownProcesses(ctx); err != nil {
 		return errors.Wrapf(err,
 			"error shutting down processes before activating active process")
 	}
 
+	previousState := f.currentState
 	f.currentState = failoverStateActive
+
 	if err := f.activeProcess.Activate(ctx, f); err != nil {
 		return errors.Wrapf(err, "error activating active process")
 	}
 
 	logrus.Infof("activated active process")
+
+	metrics.LeadershipTransitions.WithLabelValues(stateStr(previousState), stateStr(f.currentState)).Inc()
 
 	return nil
 }
@@ -302,17 +327,24 @@ func (f *FailoverManager) handleStandby(ctx context.Context) error {
 		return errors.New("error: standby process already exists")
 	}
 
+	metrics.StandbyAttempts.Inc()
+	metrics.ActiveProcesses.Set(0)
+	metrics.StandbyProcesses.Set(1)
+
 	if err := f.shutdownProcesses(ctx); err != nil {
 		return errors.Wrapf(err,
 			"error shutting down processes before activating standby process")
 	}
 
+	previousState := f.currentState
 	f.currentState = failoverStateStandby
 	if err := f.standbyProcess.Activate(ctx, f); err != nil {
 		return errors.Wrapf(err, "error activating standyby process")
 	}
 
 	logrus.Infof("activated standby process")
+
+	metrics.LeadershipTransitions.WithLabelValues(stateStr(previousState), stateStr(f.currentState)).Inc()
 
 	return nil
 }

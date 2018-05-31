@@ -4,3 +4,4 @@ RUN go install github.com/activeeos/nodeos-monitor/cmd/nodeos-monitor
 
 FROM eosio/eos:20180517
 COPY --from=0 /go/bin/nodeos-monitor /opt/eosio/bin/.
+RUN apt update -y && apt install -y curl

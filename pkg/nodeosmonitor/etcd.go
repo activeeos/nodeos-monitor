@@ -120,12 +120,14 @@ func (l *EtcdLeaseManager) Start(ctx context.Context) {
 
 		logrus.Infof("attained Etcd lease: %d", l.id)
 		close(l.gotLease)
+		metrics.LeasesAttained.Inc()
 
 		if err := l.manageKeepAlive(ctx); err != nil {
 			logrus.WithError(err).Errorf("error managing lease keep-alive")
 		}
 
 		logrus.Warn("lost Etcd lease")
+		metrics.LeasesLost.Inc()
 
 		l.mutex.Lock()
 		l.gotLease = make(chan struct{})
@@ -238,6 +240,7 @@ Loop:
 		}
 
 		for _, event := range response.Events {
+			metrics.KeyChangesDetected.Inc()
 			logrus.Infof("detected Etcd key change for %s", k.key)
 			k.changeChan <- event.Kv
 		}
