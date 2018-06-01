@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 
+	"path/filepath"
+
 	"code.cloudfoundry.org/clock"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/google/uuid"
@@ -95,12 +97,14 @@ func NewNodeosMonitor(conf *Config) (*NodeosMonitor, error) {
 	activeArgs := append(
 		conf.NodeosArgs,
 		"--config-dir", conf.ActiveConfigDir,
+		"--genesis-json", filepath.Join(conf.ActiveConfigDir, "genesis.json"),
 	)
 	activeProcess := NewProcessMonitor(conf.NodeosPath, activeArgs)
 
 	standbyArgs := append(
 		conf.NodeosArgs,
 		"--config-dir", conf.StandbyConfigDir,
+		"--genesis-json", filepath.Join(conf.ActiveConfigDir, "genesis.json"),
 	)
 	standbyProcess := NewProcessMonitor(conf.NodeosPath, standbyArgs)
 
