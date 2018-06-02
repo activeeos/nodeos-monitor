@@ -4,7 +4,7 @@ services:
     build: .
     links:
     - etcd
-    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data' --nodeos-args '--max-irreversible-block-age=108000' --debug
+    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data' --nodeos-args '--max-irreversible-block-age=108000' --nodeos-args '--genesis-json=/etc/nodeos-active-configs/genesis.json' --debug
     volumes:
       - ./testing/nodeos-active-configs:/etc/nodeos-active-configs
       - ./testing/nodeos-standby-configs:/etc/nodeos-standby-configs
@@ -13,7 +13,7 @@ services:
     build: .
     links:
     - etcd
-    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data' --nodeos-args '--max-irreversible-block-age=108000' --debug
+    command: /opt/eosio/bin/nodeos-monitor --etcd-endpoints http://etcd:2379 --nodeos-args '--data-dir=/data' --nodeos-args '--max-irreversible-block-age=108000'  --nodeos-args '--genesis-json=/etc/nodeos-active-configs/genesis.json' --debug
     volumes:
       - ./testing/nodeos-active-configs:/etc/nodeos-active-configs
       - ./testing/nodeos-standby-configs:/etc/nodeos-standby-configs
