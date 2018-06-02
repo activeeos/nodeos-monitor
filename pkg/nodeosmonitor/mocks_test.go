@@ -1,10 +1,8 @@
-package nodeosmonitor_test
+package nodeosmonitor
 
 import (
 	"context"
 	"sync"
-
-	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor"
 )
 
 // mockMonitorable is a mock for Monitorable. We need this because the
@@ -15,7 +13,7 @@ type mockMonitorable struct {
 	shutdown  bool
 }
 
-func (m *mockMonitorable) Activate(_ context.Context, _ nodeosmonitor.ProcessFailureHandler) error {
+func (m *mockMonitorable) Activate(_ context.Context, _ ProcessFailureHandler) error {
 	m.Lock()
 	defer m.Unlock()
 	m.activated = true
@@ -45,6 +43,6 @@ type mockFailureHandler struct {
 	notification chan struct{}
 }
 
-func (m *mockFailureHandler) HandleFailure(ctx context.Context, _ nodeosmonitor.Monitorable) {
+func (m *mockFailureHandler) HandleFailure(ctx context.Context, _ Monitorable) {
 	m.notification <- struct{}{}
 }

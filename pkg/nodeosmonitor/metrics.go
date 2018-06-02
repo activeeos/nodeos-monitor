@@ -19,6 +19,8 @@ type MetricsAggregator struct {
 	KeyChangesDetected    prometheus.Counter
 	ActivationAttempts    prometheus.Counter
 	StandbyAttempts       prometheus.Counter
+	BlocksProduced        prometheus.Counter
+	BlocksReceived        prometheus.Counter
 }
 
 // NewMetricsAggregator creates a new MetricsAggregator.
@@ -95,6 +97,22 @@ func NewMetricsAggregator() *MetricsAggregator {
 		},
 	)
 	prometheus.MustRegister(m.StandbyAttempts)
+
+	m.BlocksProduced = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "nodeos_monitor_blocks_produced",
+			Help: "How many blocks we have produced",
+		},
+	)
+	prometheus.MustRegister(m.BlocksProduced)
+
+	m.BlocksReceived = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "nodeos_monitor_blocks_received",
+			Help: "How many blocks we have received",
+		},
+	)
+	prometheus.MustRegister(m.BlocksReceived)
 
 	return m
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"regexp"
 	"sync"
 	"syscall"
 
@@ -15,6 +16,9 @@ import (
 
 var (
 	_ Monitorable = &ProcessMonitor{}
+
+	receivedBlockRegexp = regexp.MustCompile(`.*Received block.*signed by.*`)
+	producedBlockRegexp = regexp.MustCompile(`.*Produced block.*signed by.*`)
 )
 
 // Monitorable is a type that can be activated and shutdown. In this
@@ -67,6 +71,7 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 				logrus.WithError(err).Errorf("error reading stdout")
 				return
 			}
+			extractMetricsFromLine(line)
 			logrus.WithField("wrapped-process-stdout", string(line)).Info()
 		}
 	}()
@@ -86,6 +91,7 @@ func manageWrappedProcessOut(cmd *exec.Cmd) error {
 				logrus.WithError(err).Errorf("error reading stderr")
 				return
 			}
+			extractMetricsFromLine(line)
 			logrus.WithField("wrapped-process-stderr", string(line)).Info()
 		}
 	}()
@@ -199,4 +205,13 @@ func (p *ProcessMonitor) Shutdown(ctx context.Context) error {
 	logrus.Debugf("shut down process %v", p.path)
 
 	return nil
+}
+
+func extractMetricsFromLine(line []byte) {
+	if receivedBlockRegexp.Match(line) {
+		metrics.BlocksReceived.Inc()
+	}
+	if producedBlockRegexp.Match(line) {
+		metrics.BlocksProduced.Inc()
+	}
 }

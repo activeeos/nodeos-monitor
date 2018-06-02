@@ -1,4 +1,4 @@
-package nodeosmonitor_test
+package nodeosmonitor
 
 import (
 	"context"
@@ -6,23 +6,22 @@ import (
 	"time"
 
 	"code.cloudfoundry.org/clock/fakeclock"
-	"github.com/activeeos/nodeos-monitor/pkg/nodeosmonitor"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/google/uuid"
 )
 
-func failoverManager(ctx context.Context, t *testing.T) (*nodeosmonitor.FailoverConfig,
-	*nodeosmonitor.FailoverManager) {
+func failoverManager(ctx context.Context, t *testing.T) (*FailoverConfig,
+	*FailoverManager) {
 	clock := fakeclock.NewFakeClock(time.Now())
-	client := nodeosmonitor.GetEtcdClient(t)
+	client := GetEtcdClient(t)
 	id := uuid.New().String()
 	key := uuid.New().String()
 	activeProcess := &mockMonitorable{}
 	standbyProcess := &mockMonitorable{}
-	leaseManager := nodeosmonitor.NewEtcdLeaseManager(clock, client.Lease)
+	leaseManager := NewEtcdLeaseManager(clock, client.Lease)
 	go leaseManager.Start(ctx)
 
-	conf := &nodeosmonitor.FailoverConfig{
+	conf := &FailoverConfig{
 		ID:             id,
 		EtcdKey:        key,
 		Clock:          clock,
@@ -33,7 +32,7 @@ func failoverManager(ctx context.Context, t *testing.T) (*nodeosmonitor.Failover
 		LeaseManager:   leaseManager,
 	}
 
-	return conf, nodeosmonitor.NewFailoverManager(conf)
+	return conf, NewFailoverManager(conf)
 }
 
 func TestFailoverManagerActivateImmediatelySuccess(t *testing.T) {
@@ -60,7 +59,7 @@ func TestFailoverManagerActivateImmediatelyFailed(t *testing.T) {
 
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
+	response, err := GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +107,7 @@ func TestFailoverManagerActivatePeriodicallyFailure(t *testing.T) {
 
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
+	response, err := GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +139,7 @@ func TestFailoverManagerFromChanSuccess(t *testing.T) {
 
 	// Set a lease on the key before we use it so that it's
 	// inaccessible.
-	response, err := nodeosmonitor.GetEtcdClient(t).Lease.Grant(ctx, 100)
+	response, err := GetEtcdClient(t).Lease.Grant(ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
